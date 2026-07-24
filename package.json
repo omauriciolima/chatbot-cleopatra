@@ -1,0 +1,19 @@
+{
+  "name": "chatbot-espaco-cleopatra",
+  "version": "1.0.0",
+  "description": "Chatbot de agendamento via WhatsApp para o Espaço Cleópatra (manicure)",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {
+    "axios": "^1.7.7",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "googleapis": "^140.0.1",
+    "node-cron": "^3.0.3"
+  }
+}
