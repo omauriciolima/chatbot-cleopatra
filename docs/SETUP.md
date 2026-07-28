@@ -15,13 +15,14 @@ Passo a passo completo pra deixar o bot funcionando: Google Sheets, Z-API e depl
 1. Crie uma planilha nova no Google Sheets (pode chamar de "Espaço Cleópatra - Agendamentos").
 2. Renomeie a primeira aba para **Agendamentos** e coloque na primeira linha estes cabeçalhos:
 
-   | A | B | C | D | E | F | G | H |
-   |---|---|---|---|---|---|---|---|
-   | nome_cliente | telefone | servico | data | horario | status | lembrete_24h | lembrete_2h |
+   | A | B | C | D | E | F | G | H | I | J |
+   |---|---|---|---|---|---|---|---|---|---|
+   | nome_cliente | telefone | servico | data | horario | status | lembrete_24h | lembrete_2h | confirmacao_presenca | feedback_enviado |
 
-   > As colunas G e H (`lembrete_24h`, `lembrete_2h`) não fazem parte do escopo original, mas são
-   > necessárias para o bot saber se já mandou o lembrete daquele agendamento e não mandar de novo.
-   > Elas ficam em branco e o próprio bot preenche com "sim" quando envia cada lembrete.
+   > As colunas G a J (`lembrete_24h`, `lembrete_2h`, `confirmacao_presenca`, `feedback_enviado`) não
+   > fazem parte do escopo original, mas são necessárias para o bot saber o que já enviou/perguntou
+   > sobre cada agendamento e não repetir. Elas ficam em branco e o próprio bot preenche conforme o
+   > fluxo acontece (`sim`/`nao`).
 
 3. Crie uma segunda aba chamada **Horarios_Disponiveis** com os cabeçalhos:
 
@@ -37,13 +38,33 @@ Passo a passo completo pra deixar o bot funcionando: Google Sheets, Z-API e depl
    | segunda | 10:00 | sim |
    | segunda | 11:00 | sim |
    | terca | 09:00 | sim |
+   | sabado | 09:00 | sim |
    | ... | ... | ... |
 
-   - `dia_semana` deve ser um destes valores (minúsculo, sem acento): `segunda`, `terca`, `quarta`, `quinta`, `sexta`.
+   - `dia_semana` deve ser um destes valores (minúsculo, sem acento): `segunda`, `terca`, `quarta`,
+     `quinta`, `sexta`, `sabado`. O salão atende de segunda a sábado (veja "Horário de
+     funcionamento" mais abaixo), então cadastre também os horários de sábado.
    - `disponivel` aceita "sim" ou "não" (também funciona "TRUE"/"FALSE"). Coloque "não" (ou apague a
      linha) para bloquear um horário específico.
 
-4. Copie o **ID da planilha** — é o trecho da URL entre `/d/` e `/edit`:
+4. Crie uma terceira aba chamada **Clientes**, usada para lembrar clientes recorrentes (feature de
+   memória de cliente), com os cabeçalhos:
+
+   | A | B | C | D | E |
+   |---|---|---|---|---|
+   | telefone | nome | ultimo_servico | total_visitas | data_cadastro |
+
+   O bot preenche essa aba sozinho: cadastra a cliente assim que ela informa o nome, e depois de
+   cada agendamento confirmado atualiza `ultimo_servico` e soma 1 em `total_visitas`.
+
+5. Crie uma quarta aba chamada **Avaliacoes**, usada para guardar as notas da pesquisa de
+   satisfação enviada 2h após o atendimento, com os cabeçalhos:
+
+   | A | B | C | D |
+   |---|---|---|---|
+   | telefone | nome | nota | data |
+
+6. Copie o **ID da planilha** — é o trecho da URL entre `/d/` e `/edit`:
    `https://docs.google.com/spreadsheets/d/ESTE_TRECHO_AQUI/edit`
 
 ## 3. Criar a conta de serviço do Google (acesso à planilha)
@@ -55,11 +76,13 @@ Passo a passo completo pra deixar o bot funcionando: Google Sheets, Z-API e depl
 5. Dê um nome (ex: `chatbot-cleopatra`) e conclua a criação.
 6. Abra a conta de serviço criada, vá na aba **Chaves > Adicionar Chave > Criar nova chave**, escolha
    **JSON** e baixe o arquivo.
-7. Abra o arquivo JSON baixado e copie dois valores:
-   - `client_email` → vai na variável `GOOGLE_SERVICE_ACCOUNT_EMAIL`
-   - `private_key` → vai na variável `GOOGLE_PRIVATE_KEY` (mantenha as quebras de linha `\n`)
-8. **Compartilhe a planilha** com o e-mail da conta de serviço (o mesmo `client_email`), dando
-   permissão de **Editor** — sem isso o bot não consegue ler nem escrever na planilha.
+7. Renomeie o arquivo baixado para `credentials.json` e coloque na raiz do projeto (mesma pasta do
+   `package.json`). Esse nome já está protegido pelo `.gitignore` (padrão `credentials*.json`), então
+   ele nunca é enviado ao GitHub. Se preferir guardar em outro lugar/nome, ajuste o caminho na
+   variável `GOOGLE_CREDENTIALS_PATH` do `.env`.
+8. **Compartilhe a planilha** com o e-mail da conta de serviço (campo `client_email` dentro do
+   arquivo JSON), dando permissão de **Editor** — sem isso o bot não consegue ler nem escrever na
+   planilha.
 
 ## 4. Configurar a Z-API
 
@@ -80,16 +103,19 @@ Passo a passo completo pra deixar o bot funcionando: Google Sheets, Z-API e depl
 Copie o arquivo `.env.example` para `.env` e preencha:
 
 ```
-ZAPI_INSTANCE_ID=        # ID da instância Z-API
-ZAPI_TOKEN=               # Token da instância Z-API
-ZAPI_CLIENT_TOKEN=        # Client-Token de segurança da conta Z-API
-NUMERO_MANICURE=          # WhatsApp da manicure, só dígitos, ex: 5511999999999
-GOOGLE_SHEET_ID=          # ID da planilha
-GOOGLE_SERVICE_ACCOUNT_EMAIL=   # client_email da conta de serviço
-GOOGLE_PRIVATE_KEY=       # private_key da conta de serviço (com aspas e \n)
+ZAPI_INSTANCE_ID=            # ID da instância Z-API
+ZAPI_TOKEN=                   # Token da instância Z-API
+ZAPI_BASE_URL=https://api.z-api.io   # normalmente não precisa mudar
+ZAPI_CLIENT_TOKEN=            # Client-Token de segurança da conta Z-API
+NUMERO_MANICURE=               # WhatsApp da manicure, só dígitos, ex: 5511999999999
+GOOGLE_SHEETS_ID=              # ID da planilha
+GOOGLE_CREDENTIALS_PATH=./credentials.json   # caminho do JSON da conta de serviço
 PORT=3000
 NOME_SALAO=Espaço Cleópatra
 ```
+
+> `credentials.json` é o arquivo baixado no passo 3.7 acima. Ele contém uma chave privada — nunca
+> commite esse arquivo. O `.gitignore` do projeto já ignora qualquer `credentials*.json`.
 
 ## 6. Rodar localmente (opcional, pra testar antes do deploy)
 
@@ -136,7 +162,7 @@ comandos administrativos.
   garanta que as quebras de linha `\n` estão preservadas).
 - **"Nenhum horário disponível" mesmo tendo horários cadastrados**: confira se o valor de
   `dia_semana` na aba Horarios_Disponiveis está exatamente como `segunda`, `terca`, `quarta`,
-  `quinta` ou `sexta` (sem acento, minúsculo) e se `disponivel` está como "sim".
+  `quinta`, `sexta` ou `sabado` (sem acento, minúsculo) e se `disponivel` está como "sim".
 - **Mensagens de lista/botão não aparecem no WhatsApp**: a Z-API muda o formato desse endpoint de
   tempos em tempos. O bot já tem um fallback automático que envia as opções numeradas como texto
   simples nesse caso, então o fluxo continua funcionando mesmo assim. Se quiser corrigir a lista

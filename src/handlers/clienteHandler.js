@@ -1,22 +1,78 @@
-// Fluxo de conversa com a cliente: boas-vindas -> nome -> serviço -> dia -> horário -> confirmação.
+// Fluxo de conversa com a cliente.
+//
+// Fluxo principal (agendamento): boas-vindas -> nome -> serviço -> dia -> horário -> confirmação.
+// Cliente recorrente pula a etapa de nome e pode repetir o último serviço (feature 1).
+// Fora do fluxo principal, mensagens não reconhecidas caem no menu de fallback (feature 2),
+// que também dá acesso a "ver meu agendamento", cancelar/reagendar, preços e falar com a
+// Cleópatra.
 
 const zapiService = require('../services/zapiService');
 const sheetsService = require('../services/sheetsService');
 const { ETAPAS, obterEstado, atualizarEstado, limparEstado } = require('../utils/stateManager');
 const { interpretarEscolha, normalizarTexto } = require('../utils/textoUtils');
-const { proximosDiasUteis } = require('../utils/dateUtils');
+const { proximosDiasUteis, estaDentroDoHorarioComercial } = require('../utils/dateUtils');
 
 const NOME_SALAO = process.env.NOME_SALAO || 'Espaço Cleópatra';
+const NUMERO_MANICURE = zapiService.normalizarTelefone(process.env.NUMERO_MANICURE);
 
 const SERVICOS = ['Manicure', 'Pedicure', 'Manicure + Pedicure', 'Alongamento em Gel'];
 
+// Feature 5: tabela de preços. A manicure pode editar os valores aqui diretamente no código.
+const SERVICOS_PRECOS = {
+  Manicure: 25,
+  Pedicure: 30,
+  'Manicure + Pedicure': 50,
+  'Alongamento em Gel': 120,
+};
+
 const PALAVRAS_REINICIO = ['reiniciar', 'recomeçar', 'recomecar', 'cancelar', 'menu'];
+
+// Etapas em que "cancelar"/"menu" não devem ser tratados como "reiniciar o fluxo em
+// andamento", pois nelas essas palavras têm outro significado (ex: responder à pergunta
+// de confirmação de presença/avaliação, ou escolher a opção "Cancelar" do próprio fluxo
+// de cancelamento/reagendamento).
+const ETAPAS_SEM_REINICIO_POR_PALAVRA = [
+  ETAPAS.AGUARDANDO_CONFIRMACAO_PRESENCA,
+  ETAPAS.AGUARDANDO_AVALIACAO,
+  ETAPAS.AGUARDANDO_CANCELAR_OU_REAGENDAR,
+];
+
+// Feature 2: opções do menu de fallback.
+const OPCOES_MENU_FALLBACK = [
+  'Agendar horário',
+  'Ver meu agendamento',
+  'Cancelar agendamento',
+  'Ver preços',
+  'Falar com a Cleópatra',
+];
+
+const PALAVRAS_SAUDACAO = [
+  'oi', 'oii', 'oiii', 'ola', 'olá', 'opa', 'eae', 'e ai',
+  'bom dia', 'boa tarde', 'boa noite', 'iniciar', 'comecar', 'começar',
+];
+
+const PALAVRAS_PRECO = ['preco', 'precos', 'preços', 'valor', 'valores', 'tabela de precos'];
+
+const MENSAGEM_FORA_DO_HORARIO =
+  'Olá! Estamos fechados agora 😊 Nosso horário é de seg a sáb, das 9h às 19h. ' +
+  'Mas pode agendar aqui pelo bot a qualquer hora!';
 
 // Ponto de entrada: recebe telefone + texto da mensagem e conduz a conversa.
 async function tratarMensagem(telefone, texto) {
   const estado = obterEstado(telefone);
+  const textoNormalizado = normalizarTexto(texto);
 
-  if (PALAVRAS_REINICIO.includes(normalizarTexto(texto)) && estado.etapa !== ETAPAS.INICIO) {
+  // Feature 5: pergunta de preços funciona em qualquer etapa da conversa.
+  if (PALAVRAS_PRECO.includes(textoNormalizado) || textoNormalizado.includes('quanto custa')) {
+    await enviarListaPrecos(telefone);
+    return;
+  }
+
+  if (
+    PALAVRAS_REINICIO.includes(textoNormalizado) &&
+    estado.etapa !== ETAPAS.INICIO &&
+    !ETAPAS_SEM_REINICIO_POR_PALAVRA.includes(estado.etapa)
+  ) {
     limparEstado(telefone);
     await zapiService.enviarTexto(telefone, 'Ok, cancelei o agendamento em andamento. 💅 Quando quiser começar de novo é só mandar um "oi"!');
     return;
@@ -24,10 +80,13 @@ async function tratarMensagem(telefone, texto) {
 
   switch (estado.etapa) {
     case ETAPAS.INICIO:
-      await iniciarConversa(telefone);
+      await tratarMensagemInicial(telefone, texto);
       break;
     case ETAPAS.AGUARDANDO_NOME:
       await tratarNome(telefone, texto);
+      break;
+    case ETAPAS.AGUARDANDO_REPETIR_SERVICO:
+      await tratarRepetirServico(telefone, texto);
       break;
     case ETAPAS.AGUARDANDO_SERVICO:
       await tratarServico(telefone, texto);
@@ -41,13 +100,138 @@ async function tratarMensagem(telefone, texto) {
     case ETAPAS.AGUARDANDO_CONFIRMACAO:
       await tratarConfirmacao(telefone, texto);
       break;
+    case ETAPAS.AGUARDANDO_CANCELAR_OU_REAGENDAR:
+      await tratarCancelarOuReagendar(telefone, texto);
+      break;
+    case ETAPAS.AGUARDANDO_CONFIRMACAO_PRESENCA:
+      await tratarConfirmacaoPresenca(telefone, texto);
+      break;
+    case ETAPAS.AGUARDANDO_AVALIACAO:
+      await tratarAvaliacao(telefone, texto);
+      break;
     default:
       limparEstado(telefone);
-      await iniciarConversa(telefone);
+      await tratarMensagemInicial(telefone, texto);
   }
 }
 
+// Feature 2: quando a cliente ainda não está em nenhum fluxo, decide entre iniciar o
+// agendamento, atender uma das opções do menu, ou mostrar o menu de fallback porque não
+// entendemos a mensagem.
+async function tratarMensagemInicial(telefone, texto) {
+  const textoNormalizado = normalizarTexto(texto);
+  const indiceMenu = interpretarEscolha(texto, OPCOES_MENU_FALLBACK);
+
+  if (indiceMenu === 0 || PALAVRAS_SAUDACAO.includes(textoNormalizado)) {
+    await iniciarConversa(telefone);
+    return;
+  }
+
+  if (indiceMenu === 1) {
+    await mostrarMeuAgendamento(telefone);
+    return;
+  }
+
+  if (indiceMenu === 2) {
+    await iniciarFluxoCancelamento(telefone);
+    return;
+  }
+
+  if (indiceMenu === 3) {
+    await enviarListaPrecos(telefone);
+    return;
+  }
+
+  if (indiceMenu === 4) {
+    await falarComCleopatra(telefone);
+    return;
+  }
+
+  await enviarMenuFallback(telefone);
+}
+
+async function enviarMenuFallback(telefone) {
+  await zapiService.enviarTexto(
+    telefone,
+    'Não entendi muito bem 😅 Posso te ajudar com:\n' +
+      '1️⃣ Agendar horário\n' +
+      '2️⃣ Ver meu agendamento\n' +
+      '3️⃣ Cancelar agendamento\n' +
+      '4️⃣ Ver preços\n' +
+      '5️⃣ Falar com a Cleópatra'
+  );
+}
+
+// Feature 5: envia a tabela de preços atual (editável em SERVICOS_PRECOS).
+async function enviarListaPrecos(telefone) {
+  const linhas = [
+    `💅 Manicure — R$${SERVICOS_PRECOS.Manicure}`,
+    `🦶 Pedicure — R$${SERVICOS_PRECOS.Pedicure}`,
+    `💅🦶 Manicure + Pedicure — R$${SERVICOS_PRECOS['Manicure + Pedicure']}`,
+    `💎 Alongamento em Gel — R$${SERVICOS_PRECOS['Alongamento em Gel']}`,
+  ];
+
+  await zapiService.enviarTexto(telefone, `Nossos valores 💰:\n\n${linhas.join('\n')}`);
+}
+
+// Feature 2 (opção "ver meu agendamento"): mostra o próximo agendamento confirmado da cliente.
+async function mostrarMeuAgendamento(telefone) {
+  const agendamento = await sheetsService.buscarProximoAgendamentoPorTelefone(telefone);
+
+  if (!agendamento) {
+    await zapiService.enviarTexto(
+      telefone,
+      'Não encontrei nenhum agendamento marcado no seu telefone. Quer marcar um horário agora? É só mandar um "oi"! 💅'
+    );
+    return;
+  }
+
+  await zapiService.enviarTexto(
+    telefone,
+    `Encontrei seu agendamento! 📋\n\n💅 Serviço: ${agendamento.servico}\n📅 Dia: ${agendamento.data}\n⏰ Horário: ${agendamento.horario}`
+  );
+}
+
+// Feature 2 (opção "falar com a Cleópatra"): avisa a cliente e notifica a manicure.
+async function falarComCleopatra(telefone) {
+  await zapiService.enviarTexto(telefone, 'Já avisei a Cleópatra que você quer falar com ela! Ela te chama por aqui em breve 💕');
+
+  if (NUMERO_MANICURE) {
+    await zapiService.enviarTexto(NUMERO_MANICURE, `📩 Uma cliente (telefone ${telefone}) pediu para falar com você pelo bot.`);
+  }
+}
+
+// Feature 1: início do agendamento. Avisa se estamos fora do horário comercial (feature 6,
+// mas o agendamento continua liberado 24h) e verifica se é uma cliente recorrente.
 async function iniciarConversa(telefone) {
+  if (!estaDentroDoHorarioComercial()) {
+    await zapiService.enviarTexto(telefone, MENSAGEM_FORA_DO_HORARIO);
+  }
+
+  const cliente = await sheetsService.buscarCliente(telefone);
+
+  if (cliente) {
+    atualizarEstado(telefone, {
+      etapa: ETAPAS.AGUARDANDO_REPETIR_SERVICO,
+      nome: cliente.nome,
+      ultimoServico: cliente.ultimoServico,
+    });
+
+    if (cliente.ultimoServico) {
+      await zapiService.enviarOpcoes(
+        telefone,
+        `Olá ${cliente.nome}! Que bom te ver de novo! 😍\n\nQuer repetir seu último serviço (${cliente.ultimoServico})?`,
+        ['Sim, repetir', 'Não, quero escolher outro'],
+        'Repetir serviço',
+        'Responder'
+      );
+      return;
+    }
+
+    await enviarMenuServicos(telefone, `Olá ${cliente.nome}! Que bom te ver de novo! 😍\n\nQual serviço você quer agendar dessa vez?`);
+    return;
+  }
+
   atualizarEstado(telefone, { etapa: ETAPAS.AGUARDANDO_NOME });
   await zapiService.enviarTexto(
     telefone,
@@ -62,14 +246,34 @@ async function tratarNome(telefone, texto) {
     return;
   }
 
-  atualizarEstado(telefone, { etapa: ETAPAS.AGUARDANDO_SERVICO, nome });
-  await zapiService.enviarOpcoes(
-    telefone,
-    `Prazer, ${nome}! 🌸 Qual serviço você quer agendar?`,
-    SERVICOS,
-    'Serviços',
-    'Escolher serviço'
-  );
+  // Feature 1: já cadastra a cliente nova na aba Clientes assim que sabemos o nome dela.
+  await sheetsService.cadastrarCliente({ telefone, nome });
+  atualizarEstado(telefone, { nome });
+
+  await enviarMenuServicos(telefone, `Prazer, ${nome}! 🌸 Qual serviço você quer agendar?`);
+}
+
+async function enviarMenuServicos(telefone, mensagem) {
+  atualizarEstado(telefone, { etapa: ETAPAS.AGUARDANDO_SERVICO });
+  await zapiService.enviarOpcoes(telefone, mensagem || 'Qual serviço você quer agendar?', SERVICOS, 'Serviços', 'Escolher serviço');
+}
+
+// Feature 1: cliente recorrente decide se quer repetir o último serviço ou escolher outro.
+async function tratarRepetirServico(telefone, texto) {
+  const estado = obterEstado(telefone);
+  const indice = interpretarEscolha(texto, ['Sim, repetir', 'Não, quero escolher outro']);
+
+  if (indice === -1) {
+    await zapiService.enviarTexto(telefone, 'Não entendi 🙏 Responde *1* pra repetir ou *2* pra escolher outro serviço.');
+    return;
+  }
+
+  if (indice === 0) {
+    await avancarParaEscolhaDia(telefone, estado.ultimoServico);
+    return;
+  }
+
+  await enviarMenuServicos(telefone);
 }
 
 async function tratarServico(telefone, texto) {
@@ -85,7 +289,10 @@ async function tratarServico(telefone, texto) {
     return;
   }
 
-  const servico = SERVICOS[indice];
+  await avancarParaEscolhaDia(telefone, SERVICOS[indice]);
+}
+
+async function avancarParaEscolhaDia(telefone, servico) {
   const dias = proximosDiasUteis(7);
   atualizarEstado(telefone, { etapa: ETAPAS.AGUARDANDO_DIA, servico, diasDisponiveis: dias });
 
@@ -118,13 +325,7 @@ async function tratarDia(telefone, texto) {
   const horariosLivres = await sheetsService.listarHorariosLivres(diaEscolhido.dataBR, diaEscolhido.diaSemana);
 
   if (horariosLivres.length === 0) {
-    await zapiService.enviarOpcoes(
-      telefone,
-      `Poxa, não temos mais horários livres em ${diaEscolhido.label} 😞 Escolhe outro dia:`,
-      opcoesLabel,
-      'Dias disponíveis',
-      'Escolher dia'
-    );
+    await sugerirProximosDiasComVaga(telefone, diaEscolhido);
     return;
   }
 
@@ -143,6 +344,41 @@ async function tratarDia(telefone, texto) {
     horariosLivres,
     'Horários',
     'Escolher horário'
+  );
+}
+
+// Feature 7: quando o dia escolhido está lotado, procura os próximos dias úteis (além da
+// janela original de 7 dias mostrada antes) que ainda tenham horário livre, e sugere até 2.
+async function sugerirProximosDiasComVaga(telefone, diaEscolhido) {
+  const diasCandidatos = proximosDiasUteis(14).filter((dia) => dia.dataISO > diaEscolhido.dataISO);
+
+  const diasComVaga = [];
+  for (const dia of diasCandidatos) {
+    if (diasComVaga.length >= 2) break;
+    const livres = await sheetsService.listarHorariosLivres(dia.dataBR, dia.diaSemana);
+    if (livres.length > 0) {
+      diasComVaga.push(dia);
+    }
+  }
+
+  if (diasComVaga.length === 0) {
+    await zapiService.enviarTexto(
+      telefone,
+      `Que pena! Não tenho horários disponíveis em ${diaEscolhido.label} nem nos próximos dias 😕 Tenta de novo mais tarde, por favor!`
+    );
+    limparEstado(telefone);
+    return;
+  }
+
+  atualizarEstado(telefone, { diasDisponiveis: diasComVaga });
+
+  const sugestoes = diasComVaga.map((dia) => `📅 ${dia.label}`).join('\n');
+  await zapiService.enviarOpcoes(
+    telefone,
+    `Que pena! Não tenho horários disponíveis em ${diaEscolhido.label} 😕\n\nQue tal tentar:\n${sugestoes}`,
+    diasComVaga.map((dia) => dia.label),
+    'Dias disponíveis',
+    'Escolher dia'
   );
 }
 
@@ -211,14 +447,121 @@ async function tratarConfirmacao(telefone, texto) {
     horario: estado.horario,
   });
 
+  // Feature 8: guarda o último serviço e soma 1 na contagem de visitas da cliente.
+  await sheetsService.registrarAtendimentoCliente({ telefone, nome: estado.nome, servico: estado.servico });
+
+  const { nome, diaLabel, horario } = estado;
   limparEstado(telefone);
 
   await zapiService.enviarTexto(
     telefone,
     `Agendamento confirmado! 🎉💅\n\n` +
-      `${estado.nome}, te esperamos no dia ${estado.diaLabel} às ${estado.horario} no *${NOME_SALAO}*.\n\n` +
+      `${nome}, te esperamos no dia ${diaLabel} às ${horario} no *${NOME_SALAO}*.\n\n` +
       `Vamos te mandar um lembrete mais perto da hora. Até lá! ✨`
   );
+}
+
+// Feature 3: início do fluxo de cancelamento/reagendamento a partir do menu de fallback.
+async function iniciarFluxoCancelamento(telefone) {
+  const agendamento = await sheetsService.buscarProximoAgendamentoPorTelefone(telefone);
+
+  if (!agendamento) {
+    await zapiService.enviarTexto(telefone, 'Não encontrei nenhum agendamento seu pra cancelar ou reagendar 🤔');
+    return;
+  }
+
+  atualizarEstado(telefone, {
+    etapa: ETAPAS.AGUARDANDO_CANCELAR_OU_REAGENDAR,
+    agendamentoParaCancelar: agendamento,
+  });
+
+  await zapiService.enviarOpcoes(
+    telefone,
+    `Achei seu agendamento:\n\n💅 ${agendamento.servico}\n📅 ${agendamento.data} às ${agendamento.horario}\n\nQuer cancelar ou reagendar?`,
+    ['Cancelar', 'Reagendar'],
+    'Cancelar ou reagendar',
+    'Responder'
+  );
+}
+
+async function tratarCancelarOuReagendar(telefone, texto) {
+  const estado = obterEstado(telefone);
+  const indice = interpretarEscolha(texto, ['Cancelar', 'Reagendar']);
+
+  if (indice === -1) {
+    await zapiService.enviarTexto(telefone, 'Não entendi 🙏 Responde *1* pra cancelar ou *2* pra reagendar.');
+    return;
+  }
+
+  const agendamento = estado.agendamentoParaCancelar;
+  await sheetsService.atualizarStatusAgendamento(agendamento.numeroLinhaSheet, 'cancelado');
+
+  if (indice === 0) {
+    limparEstado(telefone);
+    await zapiService.enviarTexto(
+      telefone,
+      `Combinado! Cancelei seu agendamento de ${agendamento.data} às ${agendamento.horario}. Quando quiser marcar de novo, é só chamar 💕`
+    );
+    return;
+  }
+
+  // Reagendar: libera o horário antigo (já cancelado acima) e reabre o fluxo normal de
+  // agendamento a partir da escolha de serviço, já sabendo o nome da cliente.
+  atualizarEstado(telefone, { nome: agendamento.nome });
+  await enviarMenuServicos(telefone, 'Show, bora marcar um novo horário! 💅 Qual serviço você quer agendar?');
+}
+
+// Feature 4: resposta da cliente à pergunta de confirmação de presença enviada no
+// lembrete de 24h (ver lembreteHandler.js).
+async function tratarConfirmacaoPresenca(telefone, texto) {
+  const estado = obterEstado(telefone);
+  const indice = interpretarEscolha(texto, ['Sim', 'Não']);
+
+  if (indice === -1) {
+    await zapiService.enviarTexto(telefone, 'Não entendi 🙏 Responde *1* para SIM ou *2* para NÃO.');
+    return;
+  }
+
+  const { numeroLinhaSheet, nome, data, horario } = estado.confirmacaoPresenca;
+
+  if (indice === 0) {
+    await sheetsService.atualizarConfirmacaoPresenca(numeroLinhaSheet, 'sim');
+    limparEstado(telefone);
+    await zapiService.enviarTexto(telefone, `Perfeito, ${nome}! Te esperamos amanhã às ${horario} 💅✨`);
+    return;
+  }
+
+  await sheetsService.atualizarConfirmacaoPresenca(numeroLinhaSheet, 'nao');
+  await sheetsService.atualizarStatusAgendamento(numeroLinhaSheet, 'cancelado');
+  limparEstado(telefone);
+
+  await zapiService.enviarTexto(
+    telefone,
+    `Sem problemas, ${nome}! Cancelei seu horário de ${data} às ${horario}. Quando quiser remarcar, é só chamar 💕`
+  );
+
+  if (NUMERO_MANICURE) {
+    await zapiService.enviarTexto(
+      NUMERO_MANICURE,
+      `⚠️ ${nome} não confirmou presença e o horário de ${data} às ${horario} foi cancelado automaticamente.`
+    );
+  }
+}
+
+// Feature 10: resposta da cliente ao pedido de avaliação enviado 2h após o atendimento
+// (ver lembreteHandler.js).
+async function tratarAvaliacao(telefone, texto) {
+  const estado = obterEstado(telefone);
+  const nota = parseInt(normalizarTexto(texto), 10);
+
+  if (Number.isNaN(nota) || nota < 1 || nota > 5) {
+    await zapiService.enviarTexto(telefone, 'Não entendi 🙏 Digita um número de *1* a *5* pra avaliar.');
+    return;
+  }
+
+  await sheetsService.salvarAvaliacao({ telefone, nome: estado.avaliacaoNome, nota });
+  limparEstado(telefone);
+  await zapiService.enviarTexto(telefone, 'Muito obrigada pela avaliação! 💖 Isso ajuda demais a Cleópatra a continuar melhorando.');
 }
 
 module.exports = {

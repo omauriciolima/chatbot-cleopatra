@@ -9,9 +9,19 @@ const ETAPAS = {
   AGUARDANDO_DIA: 'AGUARDANDO_DIA',
   AGUARDANDO_HORARIO: 'AGUARDANDO_HORARIO',
   AGUARDANDO_CONFIRMACAO: 'AGUARDANDO_CONFIRMACAO',
+  // Cliente recorrente: pergunta se quer repetir o último serviço (feature 1).
+  AGUARDANDO_REPETIR_SERVICO: 'AGUARDANDO_REPETIR_SERVICO',
+  // Fluxo de cancelamento/reagendamento a partir do menu de fallback (feature 3).
+  AGUARDANDO_CANCELAR_OU_REAGENDAR: 'AGUARDANDO_CANCELAR_OU_REAGENDAR',
+  // Resposta ao lembrete de 24h perguntando se a cliente confirma presença (feature 4).
+  AGUARDANDO_CONFIRMACAO_PRESENCA: 'AGUARDANDO_CONFIRMACAO_PRESENCA',
+  // Resposta à pesquisa de satisfação enviada 2h após o horário (feature 10).
+  AGUARDANDO_AVALIACAO: 'AGUARDANDO_AVALIACAO',
 };
 
-// telefone -> { etapa, nome, servico, dataISO, dataBR, horario, diasDisponiveis, horariosDisponiveis }
+// telefone -> { etapa, nome, servico, dataISO, dataBR, horario, diasDisponiveis,
+//               horariosDisponiveis, ultimoServico, agendamentoParaCancelar,
+//               confirmacaoPresenca, avaliacaoNome }
 const estados = new Map();
 
 function obterEstado(telefone) {

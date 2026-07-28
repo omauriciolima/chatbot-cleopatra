@@ -8,8 +8,23 @@ banco de dados de agendamentos e horários disponíveis.
 
 - **Fluxo de agendamento pelo WhatsApp**: clientes escolhem serviço, dia e horário disponível e recebem
   confirmação automática.
-- **Comandos administrativos** para a manicure (`agenda hoje`, `agenda amanhã`, `cancelar [nome]`) via
-  o número configurado em `NUMERO_MANICURE`.
+- **Memória de cliente recorrente**: reconhece clientes já cadastradas pelo telefone, cumprimenta pelo
+  nome e oferece repetir o último serviço.
+- **Fallback inteligente**: mensagens que o bot não entende mostram um menu com as principais ações
+  (agendar, ver agendamento, cancelar/reagendar, preços, falar com a Cleópatra).
+- **Cancelamento e reagendamento** self-service: a cliente encontra seu agendamento pelo telefone e
+  escolhe cancelar ou remarcar.
+- **Confirmação de presença** no lembrete de 24h (responde SIM/NÃO), cancelando automaticamente e
+  avisando a manicure em caso de NÃO.
+- **Lista de preços** sob demanda (`preços`, `valores`, `quanto custa`), editável no código.
+- **Horário de funcionamento**: avisa quando o salão está fechado (seg a sáb, 9h–19h), mas o
+  agendamento pelo bot continua disponível 24h.
+- **Aviso de lotação**: se o dia escolhido estiver cheio, sugere os próximos dias com vaga.
+- **Histórico da cliente**: guarda o último serviço e o total de visitas na aba Clientes.
+- **Aviso de atraso** (comando da manicure `atraso [minutos]min`) para todas as clientes do dia.
+- **Pesquisa de satisfação** 2h após o atendimento, com nota de 1 a 5 salva na aba Avaliacoes.
+- **Comandos administrativos** para a manicure (`agenda hoje`, `agenda amanhã`, `cancelar [nome]`,
+  `atraso [minutos]min`) via o número configurado em `NUMERO_MANICURE`.
 - **Lembretes automáticos** de 24h e 2h antes do horário marcado, com job agendado que roda a cada 10
   minutos e evita reenvio duplicado.
 - **Google Sheets como banco de dados**, sem necessidade de infraestrutura própria.

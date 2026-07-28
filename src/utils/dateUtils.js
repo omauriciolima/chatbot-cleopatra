@@ -47,8 +47,8 @@ function nomeDiaSemana(dataISO) {
   return NOMES_DIA_SEMANA[data.getDay()];
 }
 
-// Gera os próximos N dias úteis (segunda a sexta) a partir de amanhã,
-// no formato { dataISO, dataBR, diaSemana, label }.
+// Gera os próximos N dias de funcionamento do salão (segunda a sábado — feature 6) a
+// partir de amanhã, no formato { dataISO, dataBR, diaSemana, label }.
 function proximosDiasUteis(quantidade = 7) {
   const dias = [];
   const cursor = agora();
@@ -57,15 +57,15 @@ function proximosDiasUteis(quantidade = 7) {
 
   while (dias.length < quantidade) {
     const diaSemanaIndex = cursor.getDay();
-    const ehFimDeSemana = diaSemanaIndex === 0 || diaSemanaIndex === 6;
+    const ehDomingo = diaSemanaIndex === 0; // salão fecha só aos domingos
 
-    if (!ehFimDeSemana) {
+    if (!ehDomingo) {
       const dataISO = formatarISO(cursor);
       dias.push({
         dataISO,
         dataBR: formatarBR(dataISO),
         diaSemana: NOMES_DIA_SEMANA[diaSemanaIndex],
-        label: `${formatarBR(dataISO)} (${capitalizar(NOMES_DIA_SEMANA[diaSemanaIndex])}-feira)`,
+        label: `${formatarBR(dataISO)} (${rotuloDiaSemana(diaSemanaIndex)})`,
       });
     }
 
@@ -73,6 +73,13 @@ function proximosDiasUteis(quantidade = 7) {
   }
 
   return dias;
+}
+
+// Sábado e domingo não usam o sufixo "-feira" ("Sábado-feira" não existe).
+function rotuloDiaSemana(diaSemanaIndex) {
+  if (diaSemanaIndex === 6) return 'Sábado';
+  if (diaSemanaIndex === 0) return 'Domingo';
+  return `${capitalizar(NOMES_DIA_SEMANA[diaSemanaIndex])}-feira`;
 }
 
 function capitalizar(texto) {
@@ -93,6 +100,20 @@ function minutosAte(dataISO, horario) {
   return Math.round(diffMs / 60000);
 }
 
+// Feature 6 (horário de funcionamento): true se agora está dentro do funcionamento do
+// salão (segunda a sábado, 9h às 19h). O agendamento pelo bot continua liberado 24h,
+// esta função só é usada para decidir se mostramos o aviso de "estamos fechados".
+function estaDentroDoHorarioComercial() {
+  const data = agora();
+  const diaSemanaIndex = data.getDay(); // 0=domingo ... 6=sábado
+  const hora = data.getHours();
+
+  const ehDiaUtilOuSabado = diaSemanaIndex >= 1 && diaSemanaIndex <= 6;
+  const dentroDoHorario = hora >= 9 && hora < 19;
+
+  return ehDiaUtilOuSabado && dentroDoHorario;
+}
+
 module.exports = {
   agora,
   formatarISO,
@@ -102,4 +123,5 @@ module.exports = {
   proximosDiasUteis,
   combinarDataHorario,
   minutosAte,
+  estaDentroDoHorarioComercial,
 };

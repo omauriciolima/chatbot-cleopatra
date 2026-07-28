@@ -8,8 +8,9 @@
 const axios = require('axios');
 
 function montarUrlBase() {
-  const { ZAPI_INSTANCE_ID, ZAPI_TOKEN } = process.env;
-  return `https://api.z-api.io/instances/${ZAPI_INSTANCE_ID}/token/${ZAPI_TOKEN}`;
+  const { ZAPI_INSTANCE_ID, ZAPI_TOKEN, ZAPI_BASE_URL } = process.env;
+  const baseUrl = ZAPI_BASE_URL || 'https://api.z-api.io';
+  return `${baseUrl}/instances/${ZAPI_INSTANCE_ID}/token/${ZAPI_TOKEN}`;
 }
 
 function montarHeaders() {

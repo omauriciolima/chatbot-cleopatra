@@ -9,7 +9,8 @@ const MENSAGEM_AJUDA =
   'Comandos disponíveis:\n\n' +
   '📋 *agenda hoje* — lista os agendamentos de hoje\n' +
   '📋 *agenda amanhã* — lista os agendamentos de amanhã\n' +
-  '❌ *cancelar [nome]* — cancela o próximo agendamento dessa cliente';
+  '❌ *cancelar [nome]* — cancela o próximo agendamento dessa cliente\n' +
+  '⏰ *atraso [minutos]min* — avisa todas as clientes de hoje sobre um atraso';
 
 async function tratarMensagem(telefone, texto) {
   const textoNormalizado = normalizarTexto(texto);
@@ -27,6 +28,14 @@ async function tratarMensagem(telefone, texto) {
   if (textoNormalizado.startsWith('cancelar ')) {
     const nome = texto.trim().slice('cancelar '.length).trim();
     await cancelarAgendamento(telefone, nome);
+    return;
+  }
+
+  // Feature 9: manicure digita algo como "atraso 15min" e o bot avisa as clientes de hoje.
+  if (textoNormalizado.startsWith('atraso')) {
+    const minutosEncontrados = texto.match(/(\d+)/);
+    const minutos = minutosEncontrados ? parseInt(minutosEncontrados[1], 10) : null;
+    await avisarAtraso(telefone, minutos);
     return;
   }
 
@@ -86,6 +95,33 @@ async function cancelarAgendamento(telefone, nome) {
   await zapiService.enviarTexto(
     cancelado.telefone,
     `Oii ${cancelado.nome}, seu agendamento de ${cancelado.data} às ${cancelado.horario} foi cancelado. Qualquer coisa, me chama pra remarcar! 💕`
+  );
+}
+
+// Feature 9: avisa todas as clientes com agendamento confirmado hoje sobre o atraso.
+async function avisarAtraso(telefoneManicure, minutos) {
+  if (!minutos) {
+    await zapiService.enviarTexto(telefoneManicure, 'Me diz quantos minutos de atraso, assim: *atraso 15min*');
+    return;
+  }
+
+  const agendamentosHoje = await sheetsService.listarAgendamentosPorData(formatarBR(dataDeHoje()));
+
+  if (agendamentosHoje.length === 0) {
+    await zapiService.enviarTexto(telefoneManicure, 'Não há agendamentos hoje pra avisar 🙂');
+    return;
+  }
+
+  for (const agendamento of agendamentosHoje) {
+    await zapiService.enviarTexto(
+      agendamento.telefone,
+      `Olá ${agendamento.nome}! A Cleópatra me pediu para avisar que está com ${minutos} minutos de atraso. Pedimos desculpas! 🙏`
+    );
+  }
+
+  await zapiService.enviarTexto(
+    telefoneManicure,
+    `Avisei ${agendamentosHoje.length} cliente(s) sobre o atraso de ${minutos} minutos ✅`
   );
 }
 
