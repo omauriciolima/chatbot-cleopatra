@@ -19,7 +19,17 @@
       "Bash(node --check src/services/sheetsService.js)",
       "Bash(node --check teste-sheets.js)",
       "Bash(node teste-sheets.js)",
-      "Bash(node -e \"console.log\\(JSON.parse\\(require\\('fs'\\).readFileSync\\('credentials.json','utf8'\\)\\).client_email\\)\")"
+      "Bash(node -e \"console.log\\(JSON.parse\\(require\\('fs'\\).readFileSync\\('credentials.json','utf8'\\)\\).client_email\\)\")",
+      "Bash(node --check teste-bot.js)",
+      "Bash(node teste-bot.js)",
+      "Bash(echo \"EXIT CODE: $?\")",
+      "Bash(echo \"EXIT: $?\")",
+      "Read(//tmp/**)",
+      "Bash(node \"/c/Users/MAURCI~1/AppData/Local/Temp/claude/C--Users-Maur-cio-Lima-chatbot-cleopatra/5c0cd707-2913-407e-9a5f-6c889503310d/scratchpad/validar-fluxos.js\")",
+      "Bash(cp \"/c/Users/MAURCI~1/AppData/Local/Temp/claude/C--Users-Maur-cio-Lima-chatbot-cleopatra/5c0cd707-2913-407e-9a5f-6c889503310d/scratchpad/validar-fluxos.js\" ./validar-fluxos-temp.js)",
+      "Bash(node validar-fluxos-temp.js)",
+      "Bash(rm -f validar-fluxos-temp.js)",
+      "Bash(grep -n \"Bem-vinda ao\\\\|Agendamento confirmado\\\\|Para agendar é só\\\\|Vou chamar a Cleópatra\\\\|Cliente \\\\${identificacao}\\\\|Cancelamento feito\" src/handlers/clienteHandler.js)"
     ]
   }
 }

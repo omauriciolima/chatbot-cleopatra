@@ -171,7 +171,10 @@ async function enviarListaPrecos(telefone) {
     `💎 Alongamento em Gel — R$${SERVICOS_PRECOS['Alongamento em Gel']}`,
   ];
 
-  await zapiService.enviarTexto(telefone, `Nossos valores 💰:\n\n${linhas.join('\n')}`);
+  await zapiService.enviarTexto(
+    telefone,
+    `Nossos valores 💰:\n\n${linhas.join('\n')}\n\nPara agendar é só digitar *oi* 😊`
+  );
 }
 
 // Feature 2 (opção "ver meu agendamento"): mostra o próximo agendamento confirmado da cliente.
@@ -194,10 +197,16 @@ async function mostrarMeuAgendamento(telefone) {
 
 // Feature 2 (opção "falar com a Cleópatra"): avisa a cliente e notifica a manicure.
 async function falarComCleopatra(telefone) {
-  await zapiService.enviarTexto(telefone, 'Já avisei a Cleópatra que você quer falar com ela! Ela te chama por aqui em breve 💕');
+  await zapiService.enviarTexto(
+    telefone,
+    'Vou chamar a Cleópatra pra você!\nUm momento... 💕\n(A Cleópatra foi notificada e vai te responder em breve)'
+  );
 
   if (NUMERO_MANICURE) {
-    await zapiService.enviarTexto(NUMERO_MANICURE, `📩 Uma cliente (telefone ${telefone}) pediu para falar com você pelo bot.`);
+    // Usa o nome da cliente se ela já for cadastrada, senão identifica pelo telefone mesmo.
+    const cliente = await sheetsService.buscarCliente(telefone);
+    const identificacao = cliente ? cliente.nome : telefone;
+    await zapiService.enviarTexto(NUMERO_MANICURE, `⚠️ Cliente ${identificacao} quer falar com você!`);
   }
 }
 
@@ -235,7 +244,9 @@ async function iniciarConversa(telefone) {
   atualizarEstado(telefone, { etapa: ETAPAS.AGUARDANDO_NOME });
   await zapiService.enviarTexto(
     telefone,
-    `Oii, seja bem-vinda ao *${NOME_SALAO}*! 💅✨\n\nVou te ajudar a marcar seu horário. Pra começar, qual é o seu nome?`
+    `Olá! 👑 Bem-vinda ao *${NOME_SALAO}*!\n` +
+      `Eu sou a assistente virtual e vou te ajudar a agendar seu horário rapidinho. 💅\n\n` +
+      `Qual é o seu nome, linda?`
   );
 }
 
@@ -456,8 +467,8 @@ async function tratarConfirmacao(telefone, texto) {
   await zapiService.enviarTexto(
     telefone,
     `Agendamento confirmado! 🎉💅\n\n` +
-      `${nome}, te esperamos no dia ${diaLabel} às ${horario} no *${NOME_SALAO}*.\n\n` +
-      `Vamos te mandar um lembrete mais perto da hora. Até lá! ✨`
+      `*${nome}*, te esperamos no dia *${diaLabel}* às *${horario}* no *${NOME_SALAO}*!\n\n` +
+      `Vamos te lembrar 24h e 2h antes. Até lá! ✨👑`
   );
 }
 
@@ -500,7 +511,10 @@ async function tratarCancelarOuReagendar(telefone, texto) {
     limparEstado(telefone);
     await zapiService.enviarTexto(
       telefone,
-      `Combinado! Cancelei seu agendamento de ${agendamento.data} às ${agendamento.horario}. Quando quiser marcar de novo, é só chamar 💕`
+      `Cancelamento feito! 💙\n` +
+        `Sentiremos sua falta ${agendamento.nome}!\n` +
+        `Quando quiser voltar é só chamar.\n` +
+        `Aguardamos você sempre! 💅✨`
     );
     return;
   }
