@@ -57,6 +57,10 @@ Passo a passo completo pra deixar o bot funcionando: Google Sheets, Z-API e depl
    O bot preenche essa aba sozinho: cadastra a cliente assim que ela informa o nome, e depois de
    cada agendamento confirmado atualiza `ultimo_servico` e soma 1 em `total_visitas`.
 
+   > O comando administrativo `nota [nome] [texto]` (ver README/manicureHandler) acrescenta
+   > sozinho uma sexta coluna **F: observacoes**, na primeira vez que a manicure salvar uma nota.
+   > Não precisa criar essa coluna com antecedência.
+
 5. Crie uma quarta aba chamada **Avaliacoes**, usada para guardar as notas da pesquisa de
    satisfação enviada 2h após o atendimento, com os cabeçalhos:
 
@@ -65,16 +69,19 @@ Passo a passo completo pra deixar o bot funcionando: Google Sheets, Z-API e depl
    | telefone | nome | nota | data |
 
 6. Crie uma quinta aba chamada **Dias_Bloqueados**, usada pelos comandos administrativos
-   `folga DD/MM` e `ferias DD/MM ate DD/MM` (ver README/manicureHandler), com os cabeçalhos:
+   `folga DD/MM`, `ferias DD/MM ate DD/MM`, `bloquear HH:MM [DD/MM]` e `liberar HH:MM [DD/MM]`
+   (ver README/manicureHandler), com os cabeçalhos:
 
-   | A | B |
-   |---|---|
-   | data | motivo |
+   | A | B | C |
+   |---|---|---|
+   | data | motivo | horario |
 
-   O bot preenche essa aba sozinho (`data` no formato `DD/MM/YYYY`, `motivo` = `folga` ou
-   `ferias`). Ela é separada da aba **Horarios_Disponiveis** de propósito: aquela guarda a
-   grade recorrente por dia da semana, então bloquear um dia específico ali bloquearia esse
-   dia da semana em todas as semanas futuras. Aqui cada linha bloqueia só uma data exata.
+   O bot preenche essa aba sozinho (`data` no formato `DD/MM/YYYY`, `motivo` = `folga`/`ferias`/
+   `horario`). A coluna `horario` fica **vazia** para bloqueios do dia inteiro (`folga`/`ferias`)
+   e preenchida (`HH:MM`) para bloqueios de um horário específico (`bloquear`). Ela é separada
+   da aba **Horarios_Disponiveis** de propósito: aquela guarda a grade recorrente por dia da
+   semana, então bloquear um dia ou horário específico ali bloquearia isso em todas as semanas
+   futuras. Aqui cada linha bloqueia só uma data (ou data+horario) exata.
 
 7. Copie o **ID da planilha** — é o trecho da URL entre `/d/` e `/edit`:
    `https://docs.google.com/spreadsheets/d/ESTE_TRECHO_AQUI/edit`

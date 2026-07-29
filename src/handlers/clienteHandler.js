@@ -11,19 +11,10 @@ const sheetsService = require('../services/sheetsService');
 const { ETAPAS, obterEstado, atualizarEstado, limparEstado } = require('../utils/stateManager');
 const { interpretarEscolha, normalizarTexto } = require('../utils/textoUtils');
 const { proximosDiasUteis, estaDentroDoHorarioComercial } = require('../utils/dateUtils');
+const { SERVICOS, SERVICOS_PRECOS, SERVICOS_EMOJI } = require('../config/servicos');
 
 const NOME_SALAO = process.env.NOME_SALAO || 'Espaço Cleópatra';
 const NUMERO_MANICURE = zapiService.normalizarTelefone(process.env.NUMERO_MANICURE);
-
-const SERVICOS = ['Manicure', 'Pedicure', 'Manicure + Pedicure', 'Alongamento em Gel'];
-
-// Feature 5: tabela de preços. A manicure pode editar os valores aqui diretamente no código.
-const SERVICOS_PRECOS = {
-  Manicure: 25,
-  Pedicure: 30,
-  'Manicure + Pedicure': 50,
-  'Alongamento em Gel': 120,
-};
 
 const PALAVRAS_REINICIO = ['reiniciar', 'recomeçar', 'recomecar', 'cancelar', 'menu'];
 
@@ -165,14 +156,9 @@ async function enviarMenuFallback(telefone) {
   );
 }
 
-// Feature 5: envia a tabela de preços atual (editável em SERVICOS_PRECOS).
+// Feature 5: envia a tabela de preços atual (editável em src/config/servicos.js).
 async function enviarListaPrecos(telefone) {
-  const linhas = [
-    `💅 Manicure — R$${SERVICOS_PRECOS.Manicure}`,
-    `🦶 Pedicure — R$${SERVICOS_PRECOS.Pedicure}`,
-    `💅🦶 Manicure + Pedicure — R$${SERVICOS_PRECOS['Manicure + Pedicure']}`,
-    `💎 Alongamento em Gel — R$${SERVICOS_PRECOS['Alongamento em Gel']}`,
-  ];
+  const linhas = SERVICOS.map((servico) => `${SERVICOS_EMOJI[servico]} ${servico} — R$${SERVICOS_PRECOS[servico]}`);
 
   await zapiService.enviarTexto(
     telefone,

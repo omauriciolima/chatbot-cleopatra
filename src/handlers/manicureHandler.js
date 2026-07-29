@@ -12,6 +12,7 @@ const sheetsService = require('../services/sheetsService');
 const { normalizarTexto, interpretarEscolha } = require('../utils/textoUtils');
 const { agora, formatarISO, formatarBR, listarDatasEntre } = require('../utils/dateUtils');
 const { ETAPAS, obterEstado, atualizarEstado, limparEstado } = require('../utils/stateManager');
+const { SERVICOS, SERVICOS_PRECOS, SERVICOS_EMOJI } = require('../config/servicos');
 
 // Etapas de confirmação específicas dos comandos administrativos (não fazem parte do
 // stateManager.ETAPAS porque só existem na conversa com o telefone da manicure).
@@ -20,6 +21,9 @@ const ETAPA_CONFIRMAR_CANCELAR_HORA = 'MANICURE_CONFIRMAR_CANCELAR_HORA';
 const ETAPA_CONFIRMAR_CANCELAR_NOME = 'MANICURE_CONFIRMAR_CANCELAR_NOME';
 const ETAPA_CONFIRMAR_FOLGA = 'MANICURE_CONFIRMAR_FOLGA';
 const ETAPA_CONFIRMAR_FERIAS = 'MANICURE_CONFIRMAR_FERIAS';
+// Comando "bloquear HH:MM": depois de bloquear, se havia cliente agendada nesse horário,
+// pergunta se quer cancelar o agendamento dela também.
+const ETAPA_CONFIRMAR_CANCELAR_APOS_BLOQUEIO = 'MANICURE_CONFIRMAR_CANCELAR_APOS_BLOQUEIO';
 
 const OPCOES_SIM_NAO = ['Sim', 'Não'];
 
@@ -27,11 +31,18 @@ const MENSAGEM_AJUDA =
   'Comandos disponíveis:\n\n' +
   '📋 *agenda hoje* — lista os agendamentos de hoje\n' +
   '📋 *agenda amanhã* — lista os agendamentos de amanhã\n' +
+  '📅 *agenda DD/MM* — lista todos os agendamentos de uma data\n' +
   '❌ *cancelar [nome]* — cancela o próximo agendamento dessa cliente (com confirmação)\n' +
   '❌ *cancelar dia DD/MM* — cancela todos os agendamentos do dia e avisa as clientes\n' +
   '❌ *cancelar hora HH:MM [DD/MM]* — cancela um horário específico (padrão: hoje)\n' +
   '🚫 *folga DD/MM* — bloqueia o dia e cancela/avisa quem já tinha agendado\n' +
   '🏖️ *ferias DD/MM ate DD/MM* — bloqueia o período e cancela/avisa quem já tinha agendado\n' +
+  '🔒 *bloquear HH:MM [DD/MM]* — bloqueia um horário específico (padrão: hoje)\n' +
+  '🔓 *liberar HH:MM [DD/MM]* — libera um horário bloqueado (padrão: hoje)\n' +
+  '🔍 *buscar [nome]* — mostra o histórico completo de uma cliente\n' +
+  '📝 *nota [nome] [texto]* — salva uma observação sobre a cliente\n' +
+  '💰 *faturamento hoje/semana/mes* — resumo de receita do período\n' +
+  '👥 *clientes* — lista todas as clientes cadastradas\n' +
   '⏰ *atraso [minutos]min* — avisa todas as clientes de hoje sobre um atraso';
 
 async function tratarMensagem(telefone, texto) {
@@ -53,6 +64,9 @@ async function tratarMensagem(telefone, texto) {
     case ETAPA_CONFIRMAR_FERIAS:
       await confirmarFerias(telefone, texto);
       return;
+    case ETAPA_CONFIRMAR_CANCELAR_APOS_BLOQUEIO:
+      await confirmarCancelarAposBloqueio(telefone, texto);
+      return;
     default:
       break;
   }
@@ -66,6 +80,12 @@ async function tratarMensagem(telefone, texto) {
 
   if (['agenda amanha', 'agenda amanhã'].includes(textoNormalizado)) {
     await enviarAgendaDoDia(telefone, formatarBR(dataDeAmanha()), 'amanhã');
+    return;
+  }
+
+  const matchAgendaData = textoNormalizado.match(/^agenda (\d{1,2}\/\d{1,2})$/);
+  if (matchAgendaData) {
+    await enviarAgendaPorData(telefone, matchAgendaData[1]);
     return;
   }
 
@@ -96,6 +116,46 @@ async function tratarMensagem(telefone, texto) {
   const matchFerias = textoNormalizado.match(/^ferias (\d{1,2}\/\d{1,2}) ate (\d{1,2}\/\d{1,2})$/);
   if (matchFerias) {
     await iniciarFerias(telefone, matchFerias[1], matchFerias[2]);
+    return;
+  }
+
+  const matchBloquear = textoNormalizado.match(/^bloquear (\d{1,2}:\d{2})(?:\s+(\d{1,2}\/\d{1,2}))?$/);
+  if (matchBloquear) {
+    await iniciarBloquearHorario(telefone, matchBloquear[1], matchBloquear[2]);
+    return;
+  }
+
+  const matchLiberar = textoNormalizado.match(/^liberar (\d{1,2}:\d{2})(?:\s+(\d{1,2}\/\d{1,2}))?$/);
+  if (matchLiberar) {
+    await liberarHorario(telefone, matchLiberar[1], matchLiberar[2]);
+    return;
+  }
+
+  if (textoNormalizado.startsWith('buscar ')) {
+    const nome = texto.trim().slice('buscar '.length).trim();
+    await buscarClienteDetalhado(telefone, nome);
+    return;
+  }
+
+  if (textoNormalizado.startsWith('nota ')) {
+    const resto = texto.trim().slice('nota '.length).trim();
+    // Assume que a primeira palavra depois de "nota" é o nome (uma palavra só) da cliente, e
+    // o restante é o texto da observação — não dá pra distinguir "nome composto" de "texto"
+    // sem algum delimitador, e o comando não define um.
+    const [nomeBusca, ...palavrasNota] = resto.split(/\s+/).filter(Boolean);
+    const nota = palavrasNota.join(' ');
+    await adicionarObservacao(telefone, nomeBusca, nota);
+    return;
+  }
+
+  const matchFaturamento = textoNormalizado.match(/^faturamento (hoje|semana|mes)$/);
+  if (matchFaturamento) {
+    await enviarFaturamento(telefone, matchFaturamento[1]);
+    return;
+  }
+
+  if (textoNormalizado === 'clientes') {
+    await listarClientes(telefone);
     return;
   }
 
@@ -167,6 +227,32 @@ async function enviarAgendaDoDia(telefone, dataBR, rotulo) {
   await zapiService.enviarTexto(
     telefone,
     `Agenda de ${rotulo} (${dataBR}):\n\n${linhas.join('\n')}`
+  );
+}
+
+// Comando "agenda DD/MM": igual à agenda de hoje/amanhã, mas para qualquer data e mostrando
+// TODOS os status (inclusive cancelados), não só os confirmados.
+async function enviarAgendaPorData(telefone, dataTexto) {
+  const dataInfo = parseDataDDMM(dataTexto);
+  if (!dataInfo) {
+    await zapiService.enviarTexto(telefone, 'Não entendi a data 🙏 Manda assim: *agenda 25/12*');
+    return;
+  }
+
+  const agendamentos = await sheetsService.listarTodosAgendamentosPorData(dataInfo.dataBR);
+
+  if (agendamentos.length === 0) {
+    await zapiService.enviarTexto(telefone, `📅 ${dataInfo.dataBR} está livre! Nenhum agendamento.`);
+    return;
+  }
+
+  const linhas = agendamentos.map(
+    (a) => `⏰ ${a.horario} — ${a.nome} — ${a.servico} — ${a.status}`
+  );
+
+  await zapiService.enviarTexto(
+    telefone,
+    `📅 Agenda de ${dataInfo.dataBR}:\n\n${linhas.join('\n')}\n\nTotal: ${agendamentos.length} agendamento(s)`
   );
 }
 
@@ -508,6 +594,223 @@ async function confirmarFerias(telefone, texto) {
     telefone,
     `Período de ${dataInicioBR} até ${dataFimBR} bloqueado e ${agendamentos.length} cliente(s) avisada(s) ✅`
   );
+}
+
+// ---------------------------------------------------------------------------------------
+// Comando 6: "bloquear HH:MM [DD/MM]" — bloqueia um horário específico (hoje por padrão).
+// O bloqueio em si é imediato; se havia cliente agendada, pergunta separadamente se quer
+// cancelar o agendamento dela também.
+// ---------------------------------------------------------------------------------------
+
+async function iniciarBloquearHorario(telefone, horario, dataTexto) {
+  const dataInfo = dataTexto ? parseDataDDMM(dataTexto) : dataDeHojeInfo();
+  if (!dataInfo) {
+    await zapiService.enviarTexto(telefone, 'Não entendi a data 🙏 Manda assim: *bloquear 14:00 25/12*');
+    return;
+  }
+
+  await sheetsService.bloquearHorario(dataInfo.dataBR, horario, 'horario');
+
+  const agendamento = await sheetsService.buscarAgendamentoPorHorario(dataInfo.dataBR, horario);
+
+  if (!agendamento) {
+    await zapiService.enviarTexto(telefone, `✅ Horário ${horario} de ${dataInfo.dataBR} bloqueado!`);
+    return;
+  }
+
+  atualizarEstado(telefone, { etapa: ETAPA_CONFIRMAR_CANCELAR_APOS_BLOQUEIO, agendamento });
+
+  await zapiService.enviarOpcoes(
+    telefone,
+    `✅ Horário ${horario} de ${dataInfo.dataBR} bloqueado!\n\n` +
+      `${agendamento.nome} está agendada nesse horário. Quer cancelar o agendamento dela e avisar?`,
+    OPCOES_SIM_NAO,
+    'Confirmação',
+    'Responder'
+  );
+}
+
+async function confirmarCancelarAposBloqueio(telefone, texto) {
+  const estado = obterEstado(telefone);
+  const indice = interpretarEscolha(texto, OPCOES_SIM_NAO);
+
+  if (indice === -1) {
+    await zapiService.enviarTexto(telefone, 'Não entendi 🙏 Responde *1* pra sim ou *2* pra não.');
+    return;
+  }
+
+  if (indice === 1) {
+    limparEstado(telefone);
+    await zapiService.enviarTexto(telefone, 'Ok, o horário fica bloqueado e o agendamento dela continua como está.');
+    return;
+  }
+
+  const { agendamento } = estado;
+  limparEstado(telefone);
+
+  await sheetsService.atualizarStatusAgendamento(agendamento.numeroLinhaSheet, 'cancelado');
+  await avisarCancelamentoEPerguntarReagendamento(
+    agendamento,
+    `Olá ${agendamento.nome}! 💙\nPrecisamos cancelar seu horário de ${agendamento.data} às ${agendamento.horario}.\n` +
+      `Pedimos desculpas! 🙏\nQuer reagendar?`
+  );
+
+  await zapiService.enviarTexto(telefone, `Cancelado ✅ Avisei ${agendamento.nome}.`);
+}
+
+// ---------------------------------------------------------------------------------------
+// Comando 7: "liberar HH:MM [DD/MM]" — remove o bloqueio de um horário específico.
+// ---------------------------------------------------------------------------------------
+
+async function liberarHorario(telefone, horario, dataTexto) {
+  const dataInfo = dataTexto ? parseDataDDMM(dataTexto) : dataDeHojeInfo();
+  if (!dataInfo) {
+    await zapiService.enviarTexto(telefone, 'Não entendi a data 🙏 Manda assim: *liberar 14:00 25/12*');
+    return;
+  }
+
+  const removeu = await sheetsService.liberarHorarioBloqueado(dataInfo.dataBR, horario);
+
+  if (!removeu) {
+    await zapiService.enviarTexto(telefone, `Não encontrei bloqueio no horário ${horario} de ${dataInfo.dataBR}.`);
+    return;
+  }
+
+  await zapiService.enviarTexto(telefone, `✅ Horário ${horario} de ${dataInfo.dataBR} liberado!`);
+}
+
+// ---------------------------------------------------------------------------------------
+// Comando 8: "buscar [nome]" — mostra o histórico completo de uma cliente.
+// ---------------------------------------------------------------------------------------
+
+async function buscarClienteDetalhado(telefone, nome) {
+  if (!nome) {
+    await zapiService.enviarTexto(telefone, 'Me diz o nome da cliente, assim: *buscar Maria*');
+    return;
+  }
+
+  const cliente = await sheetsService.buscarClientePorNome(nome);
+
+  if (!cliente) {
+    await zapiService.enviarTexto(telefone, `Não encontrei nenhuma cliente chamada "${nome}".`);
+    return;
+  }
+
+  const [proximo, ultimo] = await Promise.all([
+    sheetsService.buscarProximoAgendamentoPorTelefone(cliente.telefone),
+    sheetsService.buscarUltimoAgendamentoPorTelefone(cliente.telefone),
+  ]);
+
+  const linhas = [
+    `👤 Cliente: ${cliente.nome}`,
+    `📱 Telefone: ${cliente.telefone}`,
+    `🗓️ Cadastro: ${cliente.dataCadastro || 'não informado'}`,
+    `💅 Total de visitas: ${cliente.totalVisitas}`,
+    `⭐ Último serviço: ${cliente.ultimoServico || 'nenhum'}`,
+    `📅 Último agendamento: ${ultimo ? `${ultimo.data} às ${ultimo.horario}` : 'nenhum'}`,
+    `📝 Próximo agendamento: ${proximo ? `${proximo.data} às ${proximo.horario}` : 'nenhum'}`,
+  ];
+
+  await zapiService.enviarTexto(telefone, linhas.join('\n'));
+}
+
+// ---------------------------------------------------------------------------------------
+// Comando 9: "nota [nome] [texto]" — salva uma observação livre sobre a cliente.
+// ---------------------------------------------------------------------------------------
+
+async function adicionarObservacao(telefone, nome, nota) {
+  if (!nome || !nota) {
+    await zapiService.enviarTexto(telefone, 'Me diz assim: *nota Maria prefere esmalte vermelho*');
+    return;
+  }
+
+  const cliente = await sheetsService.buscarClientePorNome(nome);
+
+  if (!cliente) {
+    await zapiService.enviarTexto(telefone, `Não encontrei nenhuma cliente chamada "${nome}".`);
+    return;
+  }
+
+  await sheetsService.salvarObservacaoCliente(cliente.numeroLinhaSheet, nota);
+  await zapiService.enviarTexto(telefone, `✅ Observação salva para ${cliente.nome}!`);
+}
+
+// ---------------------------------------------------------------------------------------
+// Comando 10: "faturamento hoje|semana|mes" — resumo de receita por serviço no período.
+// ---------------------------------------------------------------------------------------
+
+const ROTULOS_FATURAMENTO = { hoje: 'de hoje', semana: 'da semana', mes: 'do mês' };
+
+// "semana" = últimos 7 dias corridos (incluindo hoje); "mes" = do dia 1 do mês corrente até hoje.
+function intervaloFaturamento(periodo) {
+  const hoje = agora();
+  hoje.setHours(0, 0, 0, 0);
+  const fimISO = formatarISO(hoje);
+
+  if (periodo === 'hoje') {
+    return { inicioISO: fimISO, fimISO };
+  }
+
+  if (periodo === 'semana') {
+    const inicio = new Date(hoje);
+    inicio.setDate(inicio.getDate() - 6);
+    return { inicioISO: formatarISO(inicio), fimISO };
+  }
+
+  const inicioDoMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+  return { inicioISO: formatarISO(inicioDoMes), fimISO };
+}
+
+async function enviarFaturamento(telefone, periodo) {
+  const { inicioISO, fimISO } = intervaloFaturamento(periodo);
+  const agendamentos = await sheetsService.listarAgendamentosEntreDatas(inicioISO, fimISO);
+
+  const quantidadePorServico = {};
+  SERVICOS.forEach((servico) => {
+    quantidadePorServico[servico] = 0;
+  });
+
+  let totalAtendimentos = 0;
+  let totalReceita = 0;
+
+  agendamentos.forEach((agendamento) => {
+    const preco = SERVICOS_PRECOS[agendamento.servico];
+    // Ignora serviços fora da tabela (ex: digitados manualmente na planilha, fora do menu do bot).
+    if (preco === undefined) return;
+
+    quantidadePorServico[agendamento.servico] += 1;
+    totalAtendimentos += 1;
+    totalReceita += preco;
+  });
+
+  const linhas = SERVICOS.map((servico) => {
+    const quantidade = quantidadePorServico[servico];
+    const receita = quantidade * SERVICOS_PRECOS[servico];
+    return `${SERVICOS_EMOJI[servico]} ${servico}: ${quantidade} atendimento(s) — R$${receita}`;
+  });
+
+  await zapiService.enviarTexto(
+    telefone,
+    `💰 Faturamento ${ROTULOS_FATURAMENTO[periodo]}:\n\n${linhas.join('\n')}\n\n` +
+      `Total: ${totalAtendimentos} atendimento(s) — R$${totalReceita}`
+  );
+}
+
+// ---------------------------------------------------------------------------------------
+// Comando 11: "clientes" — lista todas as clientes cadastradas.
+// ---------------------------------------------------------------------------------------
+
+async function listarClientes(telefone) {
+  const clientes = await sheetsService.listarTodosClientes();
+
+  if (clientes.length === 0) {
+    await zapiService.enviarTexto(telefone, 'Nenhuma cliente cadastrada ainda.');
+    return;
+  }
+
+  const linhas = clientes.map((cliente, indice) => `${indice + 1}. ${cliente.nome} — ${cliente.totalVisitas} visita(s)`);
+
+  await zapiService.enviarTexto(telefone, `👥 Suas clientes (${clientes.length} no total):\n\n${linhas.join('\n')}`);
 }
 
 // Feature 9: avisa todas as clientes com agendamento confirmado hoje sobre o atraso.

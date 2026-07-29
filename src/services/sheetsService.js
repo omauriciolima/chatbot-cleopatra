@@ -21,11 +21,13 @@ const ABA_AGENDAMENTOS = 'Agendamentos';
 const ABA_HORARIOS = 'Horarios_Disponiveis';
 const ABA_CLIENTES = 'Clientes';
 const ABA_AVALIACOES = 'Avaliacoes';
-// Comandos administrativos (folga/férias): datas específicas bloqueadas pela manicure.
-// Importante: é uma aba separada de Horarios_Disponiveis de propósito — aquela guarda a
-// grade recorrente por dia da semana (ex: toda segunda), então marcar "disponivel" como
-// FALSE lá bloquearia o dia da semana inteiro em todas as semanas futuras, não só a data
-// pedida. Aqui guardamos "data | motivo" (DD/MM/YYYY | folga/ferias).
+// Comandos administrativos (folga/férias/bloquear horário): datas e horários específicos
+// bloqueados pela manicure. Importante: é uma aba separada de Horarios_Disponiveis de
+// propósito — aquela guarda a grade recorrente por dia da semana (ex: toda segunda), então
+// marcar "disponivel" como FALSE lá bloquearia o dia da semana inteiro em todas as semanas
+// futuras, não só a data pedida. Aqui guardamos "data | motivo | horario" (DD/MM/YYYY |
+// folga/ferias/horario | HH:MM). A coluna "horario" fica vazia quando o bloqueio é do dia
+// inteiro (folga/ferias) e preenchida quando é só um horário específico (comando "bloquear").
 const ABA_DIAS_BLOQUEADOS = 'Dias_Bloqueados';
 
 // ID da planilha (GOOGLE_SHEETS_ID) e caminho do arquivo JSON da conta de serviço
@@ -105,33 +107,50 @@ async function listarHorariosOcupados(dataBR) {
 // Cruza os horários configurados para o dia da semana com os já ocupados naquela data,
 // retornando somente os horários realmente livres. Se a data estiver bloqueada (folga ou
 // férias, comando administrativo — ver ABA_DIAS_BLOQUEADOS), não há horário livre nenhum.
+// Horários bloqueados individualmente (comando "bloquear HH:MM") também são descontados.
 async function listarHorariosLivres(dataBR, diaSemana) {
   const bloqueada = await dataEstaBloqueada(dataBR);
   if (bloqueada) return [];
 
-  const [configurados, ocupados] = await Promise.all([
+  const [configurados, ocupados, horariosBloqueados] = await Promise.all([
     listarHorariosConfigurados(diaSemana),
     listarHorariosOcupados(dataBR),
+    listarHorariosBloqueados(dataBR),
   ]);
 
-  const ocupadosSet = new Set(ocupados);
-  return configurados.filter((horario) => !ocupadosSet.has(horario));
+  const indisponiveisSet = new Set([...ocupados, ...horariosBloqueados]);
+  return configurados.filter((horario) => !indisponiveisSet.has(horario));
 }
 
-// Comandos administrativos: verifica se uma data (DD/MM/YYYY) está bloqueada por folga/férias.
+// Comandos administrativos: verifica se uma data (DD/MM/YYYY) está bloqueada o dia inteiro
+// (folga/férias — linhas de Dias_Bloqueados sem horário específico na coluna C).
 async function dataEstaBloqueada(dataBR) {
   const sheets = await obterClienteSheets();
   const { data } = await sheets.spreadsheets.values.get({
     spreadsheetId: SPREADSHEET_ID,
-    range: `${ABA_DIAS_BLOQUEADOS}!A2:B`,
+    range: `${ABA_DIAS_BLOQUEADOS}!A2:C`,
   });
 
   const linhas = data.values || [];
-  return linhas.some((linha) => linha[0] === dataBR);
+  return linhas.some((linha) => linha[0] === dataBR && !linha[2]);
+}
+
+// Comando administrativo "bloquear HH:MM [DD/MM]": lista os horários bloqueados
+// individualmente numa data (linhas de Dias_Bloqueados com horário preenchido na coluna C).
+async function listarHorariosBloqueados(dataBR) {
+  const sheets = await obterClienteSheets();
+  const { data } = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `${ABA_DIAS_BLOQUEADOS}!A2:C`,
+  });
+
+  const linhas = data.values || [];
+  return linhas.filter((linha) => linha[0] === dataBR && linha[2]).map((linha) => linha[2]);
 }
 
 // Comandos administrativos ("folga DD/MM" e "ferias DD/MM ate DD/MM"): bloqueia uma data
-// específica, gravando na aba Dias_Bloqueados. Não duplica se a data já estiver bloqueada.
+// inteira, gravando na aba Dias_Bloqueados sem horário específico. Não duplica se a data já
+// estiver bloqueada o dia inteiro.
 async function bloquearData(dataBR, motivo) {
   const jaBloqueada = await dataEstaBloqueada(dataBR);
   if (jaBloqueada) return;
@@ -139,9 +158,74 @@ async function bloquearData(dataBR, motivo) {
   const sheets = await obterClienteSheets();
   await sheets.spreadsheets.values.append({
     spreadsheetId: SPREADSHEET_ID,
-    range: `${ABA_DIAS_BLOQUEADOS}!A:B`,
+    range: `${ABA_DIAS_BLOQUEADOS}!A:C`,
     valueInputOption: 'USER_ENTERED',
-    requestBody: { values: [[dataBR, motivo]] },
+    requestBody: { values: [[dataBR, motivo, '']] },
+  });
+}
+
+// Comando administrativo "bloquear HH:MM [DD/MM]": bloqueia um horário específico numa data,
+// sem afetar o restante do dia.
+async function bloquearHorario(dataBR, horario, motivo) {
+  const sheets = await obterClienteSheets();
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `${ABA_DIAS_BLOQUEADOS}!A:C`,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: { values: [[dataBR, motivo, horario]] },
+  });
+}
+
+// Comando administrativo "liberar HH:MM [DD/MM]": remove o bloqueio de um horário específico
+// (não mexe em bloqueios de dia inteiro). Retorna true se encontrou e removeu, false se não
+// havia bloqueio nesse horário.
+async function liberarHorarioBloqueado(dataBR, horario) {
+  const sheets = await obterClienteSheets();
+  const { data } = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `${ABA_DIAS_BLOQUEADOS}!A2:C`,
+  });
+
+  const linhas = data.values || [];
+  const indice = linhas.findIndex((linha) => linha[0] === dataBR && linha[2] === horario);
+  if (indice === -1) return false;
+
+  await apagarLinha(ABA_DIAS_BLOQUEADOS, indice + 2);
+  return true;
+}
+
+// Descobre o sheetId (usado nas chamadas de batchUpdate) de uma aba a partir do nome dela.
+async function obterSheetIdPorNome(sheets, nomeAba) {
+  const { data } = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
+  const aba = (data.sheets || []).find((s) => s.properties.title === nomeAba);
+  if (!aba) {
+    throw new Error(`Aba "${nomeAba}" não encontrada na planilha.`);
+  }
+  return aba.properties.sheetId;
+}
+
+// Remove uma linha inteira de uma aba (não só o conteúdo das células). Usado pelo comando
+// "liberar HH:MM", que precisa apagar a linha de bloqueio em vez de só limpá-la.
+async function apagarLinha(nomeAba, numeroLinhaSheet) {
+  const sheets = await obterClienteSheets();
+  const sheetId = await obterSheetIdPorNome(sheets, nomeAba);
+
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId: SPREADSHEET_ID,
+    requestBody: {
+      requests: [
+        {
+          deleteDimension: {
+            range: {
+              sheetId,
+              dimension: 'ROWS',
+              startIndex: numeroLinhaSheet - 1,
+              endIndex: numeroLinhaSheet,
+            },
+          },
+        },
+      ],
+    },
   });
 }
 
@@ -172,6 +256,30 @@ async function listarAgendamentosPorData(dataBR) {
     .filter(({ linha }) => linha[3] === dataBR && normalizarTexto(linha[5]) === 'confirmado')
     .map(({ linha, numeroLinhaSheet }) => ({
       numeroLinhaSheet,
+      nome: linha[0],
+      telefone: linha[1],
+      servico: linha[2],
+      data: linha[3],
+      horario: linha[4],
+      status: linha[5],
+    }))
+    .sort((a, b) => a.horario.localeCompare(b.horario));
+}
+
+// Comando administrativo "agenda DD/MM": lê TODOS os agendamentos de uma data (qualquer
+// status, diferente de listarAgendamentosPorData que só traz os confirmados), ordenados por
+// horário — assim a manicure também vê os que já foram cancelados naquele dia.
+async function listarTodosAgendamentosPorData(dataBR) {
+  const sheets = await obterClienteSheets();
+  const { data } = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `${ABA_AGENDAMENTOS}!A2:J`,
+  });
+
+  const linhas = data.values || [];
+  return linhas
+    .filter((linha) => linha[3] === dataBR)
+    .map((linha) => ({
       nome: linha[0],
       telefone: linha[1],
       servico: linha[2],
@@ -332,6 +440,36 @@ async function buscarProximoAgendamentoPorTelefone(telefone) {
   return candidatos[0] || null;
 }
 
+// Comando administrativo "cancelar hora HH:MM": busca o agendamento confirmado mais recente
+// (não necessariamente futuro) de um telefone. Diferente de buscarProximoAgendamentoPorTelefone,
+// aqui interessa o histórico — o último atendimento já realizado, não o próximo marcado.
+async function buscarUltimoAgendamentoPorTelefone(telefone) {
+  const sheets = await obterClienteSheets();
+  const { data } = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `${ABA_AGENDAMENTOS}!A2:J`,
+  });
+
+  const linhas = data.values || [];
+  const telefoneBusca = apenasDigitos(telefone);
+
+  const candidatos = linhas
+    .filter((linha) => apenasDigitos(linha[1]) === telefoneBusca && normalizarTexto(linha[5]) === 'confirmado')
+    .map((linha) => ({
+      nome: linha[0],
+      servico: linha[2],
+      data: linha[3],
+      horario: linha[4],
+      minutosAteAgendamento: minutosAte(converterBRparaISO(linha[3]), linha[4]),
+    }))
+    // Só atendimentos que já aconteceram (minutos negativo = no passado).
+    .filter((candidato) => candidato.minutosAteAgendamento <= 0)
+    // O menos negativo (mais próximo de agora) é o mais recente.
+    .sort((a, b) => b.minutosAteAgendamento - a.minutosAteAgendamento);
+
+  return candidatos[0] || null;
+}
+
 // Busca agendamentos confirmados que estão a ~24h ou ~2h do horário marcado e ainda não
 // receberam o respectivo lembrete. Usado pelo lembreteHandler (cron).
 async function buscarAgendamentosPendentesDeLembrete() {
@@ -459,6 +597,83 @@ async function buscarCliente(telefone) {
   };
 }
 
+// Comandos administrativos "buscar [nome]" e "nota [nome] [texto]": procura uma cliente
+// cadastrada na aba Clientes pelo nome (busca parcial e sem acento). Se houver mais de uma
+// correspondência, usa a primeira encontrada na planilha.
+async function buscarClientePorNome(nomeBusca) {
+  const sheets = await obterClienteSheets();
+  const { data } = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `${ABA_CLIENTES}!A2:E`,
+  });
+
+  const linhas = data.values || [];
+  const buscaNormalizada = normalizarTexto(nomeBusca);
+  const indice = linhas.findIndex((linha) => normalizarTexto(linha[1]).includes(buscaNormalizada));
+
+  if (indice === -1) return null;
+
+  const linha = linhas[indice];
+  return {
+    numeroLinhaSheet: indice + 2,
+    telefone: linha[0],
+    nome: linha[1],
+    ultimoServico: linha[2] || '',
+    totalVisitas: parseInt(linha[3], 10) || 0,
+    dataCadastro: linha[4] || '',
+  };
+}
+
+// Comando administrativo "clientes": lista todas as clientes cadastradas na aba Clientes.
+async function listarTodosClientes() {
+  const sheets = await obterClienteSheets();
+  const { data } = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `${ABA_CLIENTES}!A2:E`,
+  });
+
+  const linhas = data.values || [];
+  return linhas
+    .filter((linha) => linha[1])
+    .map((linha) => ({
+      telefone: linha[0],
+      nome: linha[1],
+      ultimoServico: linha[2] || '',
+      totalVisitas: parseInt(linha[3], 10) || 0,
+      dataCadastro: linha[4] || '',
+    }));
+}
+
+// Comando administrativo "nota [nome] [texto]": grava uma observação livre sobre a cliente
+// na coluna F da aba Clientes. Essa coluna não faz parte do escopo original (A-E), então na
+// primeira observação salva também escreve o cabeçalho "observacoes" em F1, se ainda não
+// existir. Sobrescreve a observação anterior (uma nota por cliente, não um histórico).
+async function salvarObservacaoCliente(numeroLinhaSheet, nota) {
+  const sheets = await obterClienteSheets();
+
+  const cabecalho = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `${ABA_CLIENTES}!F1`,
+  });
+  const jaTemCabecalho = (cabecalho.data.values || [])[0]?.[0];
+
+  if (!jaTemCabecalho) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${ABA_CLIENTES}!F1`,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: [['observacoes']] },
+    });
+  }
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `${ABA_CLIENTES}!F${numeroLinhaSheet}`,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: { values: [[nota]] },
+  });
+}
+
 // Feature 1: cadastra uma cliente nova na aba Clientes (chamado assim que ela informa o
 // nome, antes mesmo de terminar o agendamento). Não faz nada se ela já existir.
 async function cadastrarCliente({ telefone, nome }) {
@@ -517,19 +732,26 @@ module.exports = {
   listarHorariosLivres,
   dataEstaBloqueada,
   bloquearData,
+  bloquearHorario,
+  liberarHorarioBloqueado,
   salvarAgendamento,
   listarAgendamentosPorData,
+  listarTodosAgendamentosPorData,
   listarAgendamentosEntreDatas,
   buscarAgendamentoPorHorario,
   atualizarStatusAgendamento,
   atualizarConfirmacaoPresenca,
   buscarProximoAgendamentoPorNome,
   buscarProximoAgendamentoPorTelefone,
+  buscarUltimoAgendamentoPorTelefone,
   buscarAgendamentosPendentesDeLembrete,
   buscarAgendamentosPendentesDeFeedback,
   marcarLembreteEnviado,
   marcarFeedbackEnviado,
   buscarCliente,
+  buscarClientePorNome,
+  listarTodosClientes,
+  salvarObservacaoCliente,
   cadastrarCliente,
   registrarAtendimentoCliente,
   salvarAvaliacao,
