@@ -61,11 +61,14 @@ Passo a passo completo pra deixar o bot funcionando: Google Sheets, Z-API e depl
    > sozinho uma sexta coluna **F: observacoes**, na primeira vez que a manicure salvar uma nota.
    > Não precisa criar essa coluna com antecedência.
 
-   > O bot também usa sozinho, sem precisar criar com antecedência, mais duas colunas:
-   > **G: data_ultimo_agendamento** (atualizada a cada agendamento confirmado) e
-   > **H: data_envio_saudade** (atualizada quando a mensagem de saudade é enviada). Essas duas
-   > colunas alimentam a mensagem automática de saudade enviada todo dia às 10h pras clientes
-   > que não agendam há mais de 30 dias (ver lembreteHandler).
+   > O bot também usa sozinho, sem precisar criar com antecedência, mais três colunas:
+   > **G: data_ultimo_agendamento** (atualizada a cada agendamento confirmado),
+   > **H: data_envio_saudade** (atualizada quando a mensagem de saudade é enviada) e
+   > **I: lembrete_manutencao** (atualizada quando o lembrete de manutenção é enviado). G e H
+   > alimentam a mensagem automática de saudade enviada todo dia às 10h pras clientes que não
+   > agendam há mais de 30 dias, e G e I alimentam o lembrete de manutenção enviado às 11h pras
+   > clientes que já passaram do prazo típico de durabilidade do último serviço (ver
+   > lembreteHandler).
 
 5. Crie uma quarta aba chamada **Avaliacoes**, usada para guardar as notas da pesquisa de
    satisfação enviada 2h após o atendimento, com os cabeçalhos:

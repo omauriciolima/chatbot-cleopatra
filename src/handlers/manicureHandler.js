@@ -9,7 +9,7 @@
 
 const zapiService = require('../services/zapiService');
 const sheetsService = require('../services/sheetsService');
-const { normalizarTexto, interpretarEscolha } = require('../utils/textoUtils');
+const { normalizarTexto, interpretarEscolha, sortearFrase, FRASES_NAO_ENTENDI } = require('../utils/textoUtils');
 const { agora, formatarISO, formatarBR, listarDatasEntre } = require('../utils/dateUtils');
 const { ETAPAS, obterEstado, atualizarEstado, limparEstado } = require('../utils/stateManager');
 const { SERVICOS, SERVICOS_PRECOS, SERVICOS_EMOJI } = require('../config/servicos');
@@ -235,7 +235,7 @@ async function enviarAgendaDoDia(telefone, dataBR, rotulo) {
 async function enviarAgendaPorData(telefone, dataTexto) {
   const dataInfo = parseDataDDMM(dataTexto);
   if (!dataInfo) {
-    await zapiService.enviarTexto(telefone, 'Não entendi a data 🙏 Manda assim: *agenda 25/12*');
+    await zapiService.enviarTexto(telefone, `${sortearFrase(FRASES_NAO_ENTENDI)} Manda assim: *agenda 25/12*`);
     return;
   }
 
@@ -282,7 +282,7 @@ async function avisarCancelamentoEPerguntarReagendamento(agendamento, mensagem) 
 async function iniciarCancelamentoDia(telefone, dataTexto) {
   const dataInfo = parseDataDDMM(dataTexto);
   if (!dataInfo) {
-    await zapiService.enviarTexto(telefone, 'Não entendi a data 🙏 Manda assim: *cancelar dia 25/12*');
+    await zapiService.enviarTexto(telefone, `${sortearFrase(FRASES_NAO_ENTENDI)} Manda assim: *cancelar dia 25/12*`);
     return;
   }
 
@@ -310,7 +310,7 @@ async function confirmarCancelamentoDia(telefone, texto) {
   const indice = interpretarEscolha(texto, OPCOES_SIM_NAO);
 
   if (indice === -1) {
-    await zapiService.enviarTexto(telefone, 'Não entendi 🙏 Responde *1* pra sim ou *2* pra não.');
+    await zapiService.enviarTexto(telefone, `${sortearFrase(FRASES_NAO_ENTENDI)} Responde *1* pra sim ou *2* pra não.`);
     return;
   }
 
@@ -346,7 +346,7 @@ async function iniciarCancelamentoHora(telefone, horario, dataTexto) {
   const dataInfo = dataTexto ? parseDataDDMM(dataTexto) : dataDeHojeInfo();
 
   if (!dataInfo) {
-    await zapiService.enviarTexto(telefone, 'Não entendi a data 🙏 Manda assim: *cancelar hora 14:00 25/12*');
+    await zapiService.enviarTexto(telefone, `${sortearFrase(FRASES_NAO_ENTENDI)} Manda assim: *cancelar hora 14:00 25/12*`);
     return;
   }
 
@@ -377,7 +377,7 @@ async function confirmarCancelamentoHora(telefone, texto) {
   const indice = interpretarEscolha(texto, OPCOES_SIM_NAO);
 
   if (indice === -1) {
-    await zapiService.enviarTexto(telefone, 'Não entendi 🙏 Responde *1* pra sim ou *2* pra não.');
+    await zapiService.enviarTexto(telefone, `${sortearFrase(FRASES_NAO_ENTENDI)} Responde *1* pra sim ou *2* pra não.`);
     return;
   }
 
@@ -434,7 +434,7 @@ async function confirmarCancelamentoNome(telefone, texto) {
   const indice = interpretarEscolha(texto, OPCOES_SIM_NAO);
 
   if (indice === -1) {
-    await zapiService.enviarTexto(telefone, 'Não entendi 🙏 Responde *1* pra sim ou *2* pra não.');
+    await zapiService.enviarTexto(telefone, `${sortearFrase(FRASES_NAO_ENTENDI)} Responde *1* pra sim ou *2* pra não.`);
     return;
   }
 
@@ -465,7 +465,7 @@ async function confirmarCancelamentoNome(telefone, texto) {
 async function iniciarFolga(telefone, dataTexto) {
   const dataInfo = parseDataDDMM(dataTexto);
   if (!dataInfo) {
-    await zapiService.enviarTexto(telefone, 'Não entendi a data 🙏 Manda assim: *folga 25/12*');
+    await zapiService.enviarTexto(telefone, `${sortearFrase(FRASES_NAO_ENTENDI)} Manda assim: *folga 25/12*`);
     return;
   }
 
@@ -486,7 +486,7 @@ async function confirmarFolga(telefone, texto) {
   const indice = interpretarEscolha(texto, OPCOES_SIM_NAO);
 
   if (indice === -1) {
-    await zapiService.enviarTexto(telefone, 'Não entendi 🙏 Responde *1* pra sim ou *2* pra não.');
+    await zapiService.enviarTexto(telefone, `${sortearFrase(FRASES_NAO_ENTENDI)} Responde *1* pra sim ou *2* pra não.`);
     return;
   }
 
@@ -524,7 +524,7 @@ async function iniciarFerias(telefone, dataInicioTexto, dataFimTexto) {
   const fimInfo = parseDataDDMM(dataFimTexto);
 
   if (!inicioInfo || !fimInfo) {
-    await zapiService.enviarTexto(telefone, 'Não entendi as datas 🙏 Manda assim: *ferias 20/12 ate 05/01*');
+    await zapiService.enviarTexto(telefone, `${sortearFrase(FRASES_NAO_ENTENDI)} Manda assim: *ferias 20/12 ate 05/01*`);
     return;
   }
 
@@ -563,7 +563,7 @@ async function confirmarFerias(telefone, texto) {
   const indice = interpretarEscolha(texto, OPCOES_SIM_NAO);
 
   if (indice === -1) {
-    await zapiService.enviarTexto(telefone, 'Não entendi 🙏 Responde *1* pra sim ou *2* pra não.');
+    await zapiService.enviarTexto(telefone, `${sortearFrase(FRASES_NAO_ENTENDI)} Responde *1* pra sim ou *2* pra não.`);
     return;
   }
 
@@ -605,7 +605,7 @@ async function confirmarFerias(telefone, texto) {
 async function iniciarBloquearHorario(telefone, horario, dataTexto) {
   const dataInfo = dataTexto ? parseDataDDMM(dataTexto) : dataDeHojeInfo();
   if (!dataInfo) {
-    await zapiService.enviarTexto(telefone, 'Não entendi a data 🙏 Manda assim: *bloquear 14:00 25/12*');
+    await zapiService.enviarTexto(telefone, `${sortearFrase(FRASES_NAO_ENTENDI)} Manda assim: *bloquear 14:00 25/12*`);
     return;
   }
 
@@ -635,7 +635,7 @@ async function confirmarCancelarAposBloqueio(telefone, texto) {
   const indice = interpretarEscolha(texto, OPCOES_SIM_NAO);
 
   if (indice === -1) {
-    await zapiService.enviarTexto(telefone, 'Não entendi 🙏 Responde *1* pra sim ou *2* pra não.');
+    await zapiService.enviarTexto(telefone, `${sortearFrase(FRASES_NAO_ENTENDI)} Responde *1* pra sim ou *2* pra não.`);
     return;
   }
 
@@ -665,7 +665,7 @@ async function confirmarCancelarAposBloqueio(telefone, texto) {
 async function liberarHorario(telefone, horario, dataTexto) {
   const dataInfo = dataTexto ? parseDataDDMM(dataTexto) : dataDeHojeInfo();
   if (!dataInfo) {
-    await zapiService.enviarTexto(telefone, 'Não entendi a data 🙏 Manda assim: *liberar 14:00 25/12*');
+    await zapiService.enviarTexto(telefone, `${sortearFrase(FRASES_NAO_ENTENDI)} Manda assim: *liberar 14:00 25/12*`);
     return;
   }
 

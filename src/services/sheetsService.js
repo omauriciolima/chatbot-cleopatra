@@ -7,11 +7,12 @@
 //    apenas para o bot controlar o que já foi enviado/perguntado e não duplicar nada)
 //  - "Horarios_Disponiveis": dia_semana | horario | disponivel
 //  - "Clientes": telefone | nome | ultimo_servico | total_visitas | data_cadastro |
-//    observacoes | data_ultimo_agendamento | data_envio_saudade
-//    (as colunas F, G e H também são extras do bot: F guarda observação livre da manicure,
-//    G guarda a data do último agendamento feito — usada pra detectar cliente sumida — e
-//    H guarda a data em que a última mensagem de saudade foi enviada, pra não repetir
-//    antes de 30 dias)
+//    observacoes | data_ultimo_agendamento | data_envio_saudade | lembrete_manutencao
+//    (as colunas F a I também são extras do bot: F guarda observação livre da manicure,
+//    G guarda a data do último agendamento feito — usada pra detectar cliente sumida e
+//    calcular o prazo de manutenção —, H guarda a data em que a última mensagem de saudade
+//    foi enviada, pra não repetir antes de 30 dias, e I guarda a data do último lembrete de
+//    manutenção enviado, pra não repetir antes de 15 dias)
 //  - "Avaliacoes": telefone | nome | nota | data
 //
 // Datas são gravadas no formato brasileiro "DD/MM/YYYY", igual à visualização da manicure na planilha.
@@ -21,6 +22,7 @@ const path = require('path');
 const { google } = require('googleapis');
 const { converterBRparaISO, minutosAte, diasDesde, agora, formatarISO, formatarBR } = require('../utils/dateUtils');
 const { normalizarTexto } = require('../utils/textoUtils');
+const { PRAZOS_MANUTENCAO_DIAS } = require('../config/servicos');
 
 const ABA_AGENDAMENTOS = 'Agendamentos';
 const ABA_HORARIOS = 'Horarios_Disponiveis';
@@ -806,6 +808,58 @@ async function marcarSaudadeEnviada(numeroLinhaSheet) {
   });
 }
 
+// Lembrete de manutenção: busca clientes cujo último serviço já passou do prazo típico de
+// durabilidade (PRAZOS_MANUTENCAO_DIAS, por tipo de serviço), que não têm agendamento futuro
+// marcado (pra não incomodar quem já vai voltar) e que não receberam esse lembrete nos
+// últimos 15 dias (coluna I, lembrete_manutencao).
+async function buscarClientesParaManutencao() {
+  const sheets = await obterClienteSheets();
+  const { data } = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `${ABA_CLIENTES}!A2:I`,
+  });
+
+  const linhas = data.values || [];
+  const candidatas = [];
+
+  for (let indice = 0; indice < linhas.length; indice++) {
+    const linha = linhas[indice];
+    const nome = linha[1];
+    const servico = linha[2];
+    const dataUltimoAgendamentoBR = linha[6];
+    if (!nome || !servico || !dataUltimoAgendamentoBR) continue;
+
+    const prazoDias = PRAZOS_MANUTENCAO_DIAS[servico];
+    if (!prazoDias) continue;
+
+    const diasSemAgendar = diasDesde(converterBRparaISO(dataUltimoAgendamentoBR));
+    if (diasSemAgendar < prazoDias) continue;
+
+    const dataLembreteAnteriorBR = linha[8];
+    if (dataLembreteAnteriorBR && diasDesde(converterBRparaISO(dataLembreteAnteriorBR)) < 15) continue;
+
+    const telefone = linha[0];
+    const proximoAgendamento = await buscarProximoAgendamentoPorTelefone(telefone);
+    if (proximoAgendamento) continue;
+
+    candidatas.push({ numeroLinhaSheet: indice + 2, telefone, nome, servico, diasSemAgendar });
+  }
+
+  return candidatas;
+}
+
+// Lembrete de manutenção: grava a data de hoje na coluna I (lembrete_manutencao) pra não
+// mandar o mesmo lembrete de novo antes de 15 dias.
+async function marcarLembreteManutencaoEnviado(numeroLinhaSheet) {
+  const sheets = await obterClienteSheets();
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `${ABA_CLIENTES}!I${numeroLinhaSheet}`,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: { values: [[hojeFormatadoBR()]] },
+  });
+}
+
 // Feature 10: grava a avaliação (1 a 5) enviada pela cliente na aba Avaliacoes.
 async function salvarAvaliacao({ telefone, nome, nota }) {
   const sheets = await obterClienteSheets();
@@ -849,4 +903,6 @@ module.exports = {
   salvarAvaliacao,
   buscarClientesSumidas,
   marcarSaudadeEnviada,
+  buscarClientesParaManutencao,
+  marcarLembreteManutencaoEnviado,
 };

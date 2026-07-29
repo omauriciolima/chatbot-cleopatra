@@ -4,6 +4,8 @@
 //  - ~30min depois do horário marcado, atualizando o status de "confirmado" pra "concluido"
 //  - ~2h depois do horário marcado, com pedido de avaliação (feature 10)
 //  - todo dia às 10h, com mensagem de saudade pras clientes sumidas (30+ dias sem agendar)
+//  - todo dia às 11h, com lembrete de manutenção pras clientes que já passaram do prazo
+//    típico de durabilidade do último serviço (ver PRAZOS_MANUTENCAO_DIAS)
 //
 // O job de 10 em 10 minutos usa uma janela de +-15min (ver sheetsService) pra não perder
 // nem duplicar nenhum envio.
@@ -126,10 +128,35 @@ async function verificarEEnviarSaudade() {
   }
 }
 
+// Lembrete de manutenção: todo dia às 11h, avisa as clientes cujo último serviço já passou
+// do prazo típico de durabilidade (ex: manicure dura ~15 dias, ver PRAZOS_MANUTENCAO_DIAS em
+// config/servicos.js), sugerindo agendar uma manutenção. Não manda pra quem já tem
+// agendamento futuro marcado nem repete o lembrete pra mesma cliente antes de 15 dias
+// (ver buscarClientesParaManutencao em sheetsService.js).
+async function verificarEEnviarManutencao() {
+  try {
+    const clientesParaManutencao = await sheetsService.buscarClientesParaManutencao();
+
+    for (const cliente of clientesParaManutencao) {
+      await zapiService.enviarTexto(
+        cliente.telefone,
+        `Oi ${cliente.nome}! 💅 Aqui é a Cléo do *${NOME_SALAO}*!\n\n` +
+          `Passando pra lembrar que já faz ${cliente.diasSemAgendar} dias desde sua última ${cliente.servico}!\n\n` +
+          `Que tal agendar uma manutenção?\n` +
+          `É só responder *oi* que eu te ajudo! 😍👑`
+      );
+      await sheetsService.marcarLembreteManutencaoEnviado(cliente.numeroLinhaSheet);
+    }
+  } catch (erro) {
+    console.error('Erro ao verificar/enviar lembretes de manutenção:', erro.message);
+  }
+}
+
 function iniciarAgendador() {
   cron.schedule('*/10 * * * *', verificarEEnviarLembretes, { timezone: 'America/Sao_Paulo' });
   cron.schedule('0 10 * * *', verificarEEnviarSaudade, { timezone: 'America/Sao_Paulo' });
-  console.log('Agendador de lembretes iniciado (a cada 10 minutos, saudade todo dia às 10h).');
+  cron.schedule('0 11 * * *', verificarEEnviarManutencao, { timezone: 'America/Sao_Paulo' });
+  console.log('Agendador de lembretes iniciado (a cada 10 minutos, saudade às 10h, manutenção às 11h).');
 }
 
 module.exports = {

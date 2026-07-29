@@ -9,7 +9,16 @@
 const zapiService = require('../services/zapiService');
 const sheetsService = require('../services/sheetsService');
 const { ETAPAS, obterEstado, atualizarEstado, limparEstado } = require('../utils/stateManager');
-const { interpretarEscolha, normalizarTexto, detectarIntencao, INTENCOES } = require('../utils/textoUtils');
+const {
+  interpretarEscolha,
+  normalizarTexto,
+  detectarIntencao,
+  INTENCOES,
+  sortearFrase,
+  FRASES_CONFIRMACAO,
+  FRASES_DESPEDIDA,
+  FRASES_NAO_ENTENDI,
+} = require('../utils/textoUtils');
 const { proximosDiasUteis, estaDentroDoHorarioComercial } = require('../utils/dateUtils');
 const { SERVICOS, SERVICOS_PRECOS, SERVICOS_EMOJI } = require('../config/servicos');
 
@@ -52,9 +61,23 @@ async function tratarMensagem(telefone, texto) {
   const textoNormalizado = normalizarTexto(texto);
 
   // Feature 5: pergunta de preços funciona em qualquer etapa da conversa, reconhecida por
-  // palavras-chave em linguagem natural (ver detectarIntencao em textoUtils.js).
-  if (detectarIntencao(texto) === INTENCOES.PRECO) {
+  // palavras-chave em linguagem natural (ver detectarIntencao em textoUtils.js). Pagamento e
+  // localização seguem o mesmo padrão: são perguntas de FAQ que fazem sentido a qualquer
+  // momento, então também não dependem da etapa atual.
+  const intencaoGlobal = detectarIntencao(texto);
+
+  if (intencaoGlobal === INTENCOES.PRECO) {
     await enviarListaPrecos(telefone);
+    return;
+  }
+
+  if (intencaoGlobal === INTENCOES.PAGAMENTO) {
+    await enviarFormasPagamento(telefone);
+    return;
+  }
+
+  if (intencaoGlobal === INTENCOES.LOCALIZACAO) {
+    await enviarLocalizacao(telefone);
     return;
   }
 
@@ -170,7 +193,7 @@ async function tratarMensagemInicial(telefone, texto) {
 async function enviarMenuFallback(telefone) {
   await zapiService.enviarTexto(
     telefone,
-    'Não entendi muito bem 😅 Posso te ajudar com:\n' +
+    `${sortearFrase(FRASES_NAO_ENTENDI)} Posso te ajudar com:\n` +
       '1️⃣ Agendar horário\n' +
       '2️⃣ Ver meu agendamento\n' +
       '3️⃣ Cancelar agendamento\n' +
@@ -186,6 +209,30 @@ async function enviarListaPrecos(telefone) {
   await zapiService.enviarTexto(
     telefone,
     `Nossos valores 💰:\n\n${linhas.join('\n')}\n\nPara agendar é só digitar *oi* 😊`
+  );
+}
+
+// Responde a pergunta sobre formas de pagamento aceitas (reconhecida por palavras-chave em
+// qualquer etapa da conversa, ver INTENCOES.PAGAMENTO em textoUtils.js).
+async function enviarFormasPagamento(telefone) {
+  await zapiService.enviarTexto(
+    telefone,
+    `Aceitamos todas as formas de pagamento! 💳\n\n` +
+      `💵 Dinheiro\n💳 Cartão de débito e crédito\n📱 PIX\n\n` +
+      `Fica à vontade! Se quiser agendar é só responder *oi* 😊`
+  );
+}
+
+// Responde a pergunta sobre localização do salão (reconhecida por palavras-chave em
+// qualquer etapa da conversa, ver INTENCOES.LOCALIZACAO em textoUtils.js).
+async function enviarLocalizacao(telefone) {
+  await zapiService.enviarTexto(
+    telefone,
+    `📍 Nos encontre aqui:\n\n` +
+      `*${NOME_SALAO}*\n` +
+      `Rua Julio de Castilho, 133\n` +
+      `Belo Horizonte — MG\n\n` +
+      `🗺️ Salva nosso endereço e vem nos visitar! Te esperamos com todo carinho 💅👑`
   );
 }
 
@@ -238,10 +285,15 @@ async function iniciarConversa(telefone) {
       ultimoServico: cliente.ultimoServico,
     });
 
+    const saudacaoRecorrente =
+      `Oi ${cliente.nome}! 😍 Que saudade!\n` +
+      `Sou a Cléo, tô aqui pra te ajudar!\n` +
+      `Como posso te deixar ainda mais linda hoje? 💅`;
+
     if (cliente.ultimoServico) {
       await zapiService.enviarOpcoes(
         telefone,
-        `Olá ${cliente.nome}! Que bom te ver de novo! 😍\n\nQuer repetir seu último serviço (${cliente.ultimoServico})?`,
+        `${saudacaoRecorrente}\n\nQuer repetir seu último serviço (${cliente.ultimoServico})?`,
         ['Sim, repetir', 'Não, quero escolher outro'],
         'Repetir serviço',
         'Responder'
@@ -249,23 +301,23 @@ async function iniciarConversa(telefone) {
       return;
     }
 
-    await enviarMenuServicos(telefone, `Olá ${cliente.nome}! Que bom te ver de novo! 😍\n\nQual serviço você quer agendar dessa vez?`);
+    await enviarMenuServicos(telefone, `${saudacaoRecorrente}\n\nQual serviço você quer agendar dessa vez?`);
     return;
   }
 
   atualizarEstado(telefone, { etapa: ETAPAS.AGUARDANDO_NOME });
   await zapiService.enviarTexto(
     telefone,
-    `Olá! 👑 Bem-vinda ao *${NOME_SALAO}*!\n` +
-      `Eu sou a assistente virtual e vou te ajudar a agendar seu horário rapidinho. 💅\n\n` +
-      `Qual é o seu nome, linda?`
+    `Olá! 👑 Eu sou a Cléo, secretária virtual do *${NOME_SALAO}*!\n` +
+      `Como posso te deixar ainda mais linda hoje? 💅\n` +
+      `Primeiro me diz: qual é o seu nome?`
   );
 }
 
 async function tratarNome(telefone, texto) {
   const nome = texto.trim();
   if (nome.length < 2) {
-    await zapiService.enviarTexto(telefone, 'Desculpa, não entendi 🙏 Pode me dizer seu nome, por favor?');
+    await zapiService.enviarTexto(telefone, `${sortearFrase(FRASES_NAO_ENTENDI)} Pode me dizer seu nome, por favor?`);
     return;
   }
 
@@ -287,7 +339,10 @@ async function tratarRepetirServico(telefone, texto) {
   const indice = interpretarEscolha(texto, ['Sim, repetir', 'Não, quero escolher outro']);
 
   if (indice === -1) {
-    await zapiService.enviarTexto(telefone, 'Não entendi 🙏 Responde *1* pra repetir ou *2* pra escolher outro serviço.');
+    await zapiService.enviarTexto(
+      telefone,
+      `${sortearFrase(FRASES_NAO_ENTENDI)} Responde *1* pra repetir ou *2* pra escolher outro serviço.`
+    );
     return;
   }
 
@@ -321,7 +376,7 @@ async function avancarParaEscolhaDia(telefone, servico) {
 
   await zapiService.enviarOpcoes(
     telefone,
-    `Perfeito, *${servico}*! 📅 Agora escolhe o dia que fica melhor pra você:`,
+    `${sortearFrase(FRASES_CONFIRMACAO)} *${servico}*! 📅 Agora escolhe o dia que fica melhor pra você:`,
     dias.map((dia) => dia.label),
     'Dias disponíveis',
     'Escolher dia'
@@ -363,7 +418,7 @@ async function tratarDia(telefone, texto) {
 
   await zapiService.enviarOpcoes(
     telefone,
-    `Show! ⏰ Esses são os horários livres em ${diaEscolhido.label}:`,
+    `${sortearFrase(FRASES_CONFIRMACAO)} ⏰ Esses são os horários livres em ${diaEscolhido.label}:`,
     horariosLivres,
     'Horários',
     'Escolher horário'
@@ -439,13 +494,16 @@ async function tratarConfirmacao(telefone, texto) {
   const indice = interpretarEscolha(texto, ['Sim, confirmar', 'Não, cancelar']);
 
   if (indice === -1) {
-    await zapiService.enviarTexto(telefone, 'Não entendi 🙏 Responde *1* pra confirmar ou *2* pra cancelar.');
+    await zapiService.enviarTexto(telefone, `${sortearFrase(FRASES_NAO_ENTENDI)} Responde *1* pra confirmar ou *2* pra cancelar.`);
     return;
   }
 
   if (indice === 1) {
     limparEstado(telefone);
-    await zapiService.enviarTexto(telefone, 'Sem problemas! Cancelei esse agendamento. Quando quiser começar de novo, é só chamar 💕');
+    await zapiService.enviarTexto(
+      telefone,
+      `Sem problemas! Cancelei esse agendamento. Quando quiser começar de novo, é só chamar 💕 ${sortearFrase(FRASES_DESPEDIDA)}`
+    );
     return;
   }
 
@@ -483,9 +541,9 @@ async function tratarConfirmacao(telefone, texto) {
 
   await zapiService.enviarTexto(
     telefone,
-    `Agendamento confirmado! 🎉💅\n\n` +
+    `${sortearFrase(FRASES_CONFIRMACAO)} Agendamento confirmado! 🎉💅\n\n` +
       `*${nome}*, te esperamos no dia *${diaLabel}* às *${horario}* no *${NOME_SALAO}*!\n\n` +
-      `Vamos te lembrar 24h e 2h antes. Até lá! ✨👑`
+      `Vamos te lembrar 24h e 2h antes. ${sortearFrase(FRASES_DESPEDIDA)}`
   );
 }
 
@@ -517,7 +575,7 @@ async function tratarCancelarOuReagendar(telefone, texto) {
   const indice = interpretarEscolha(texto, ['Cancelar', 'Reagendar']);
 
   if (indice === -1) {
-    await zapiService.enviarTexto(telefone, 'Não entendi 🙏 Responde *1* pra cancelar ou *2* pra reagendar.');
+    await zapiService.enviarTexto(telefone, `${sortearFrase(FRASES_NAO_ENTENDI)} Responde *1* pra cancelar ou *2* pra reagendar.`);
     return;
   }
 
@@ -549,7 +607,7 @@ async function tratarConfirmacaoPresenca(telefone, texto) {
   const indice = interpretarEscolha(texto, ['Sim', 'Não']);
 
   if (indice === -1) {
-    await zapiService.enviarTexto(telefone, 'Não entendi 🙏 Responde *1* para SIM ou *2* para NÃO.');
+    await zapiService.enviarTexto(telefone, `${sortearFrase(FRASES_NAO_ENTENDI)} Responde *1* para SIM ou *2* para NÃO.`);
     return;
   }
 
@@ -558,7 +616,7 @@ async function tratarConfirmacaoPresenca(telefone, texto) {
   if (indice === 0) {
     await sheetsService.atualizarConfirmacaoPresenca(numeroLinhaSheet, 'sim');
     limparEstado(telefone);
-    await zapiService.enviarTexto(telefone, `Perfeito, ${nome}! Te esperamos amanhã às ${horario} 💅✨`);
+    await zapiService.enviarTexto(telefone, `${sortearFrase(FRASES_CONFIRMACAO)} ${nome}! Te esperamos amanhã às ${horario} 💅✨`);
     return;
   }
 
@@ -586,14 +644,17 @@ async function tratarAvaliacao(telefone, texto) {
   const nota = parseInt(normalizarTexto(texto), 10);
 
   if (Number.isNaN(nota) || nota < 1 || nota > 5) {
-    await zapiService.enviarTexto(telefone, 'Não entendi 🙏 Digita um número de *1* a *5* pra avaliar.');
+    await zapiService.enviarTexto(telefone, `${sortearFrase(FRASES_NAO_ENTENDI)} Digita um número de *1* a *5* pra avaliar.`);
     return;
   }
 
   const { nome, servico, data, horario } = estado.avaliacaoInfo || {};
   await sheetsService.salvarAvaliacao({ telefone, nome, nota });
   limparEstado(telefone);
-  await zapiService.enviarTexto(telefone, 'Muito obrigada pela avaliação! 💖 Isso ajuda demais a Cleópatra a continuar melhorando.');
+  await zapiService.enviarTexto(
+    telefone,
+    `Muito obrigada pela avaliação! 💖 Isso ajuda demais a Cleópatra a continuar melhorando. ${sortearFrase(FRASES_DESPEDIDA)}`
+  );
 
   // Nota baixa (1 ou 2): avisa a manicure na hora pra ela poder resolver com a cliente.
   if (nota <= 2 && NUMERO_MANICURE) {
@@ -616,13 +677,19 @@ async function tratarReagendarAposCancelamentoManicure(telefone, texto) {
   const indice = interpretarEscolha(texto, ['Sim, quero reagendar', 'Não por enquanto']);
 
   if (indice === -1) {
-    await zapiService.enviarTexto(telefone, 'Não entendi 🙏 Responde *1* pra reagendar ou *2* pra não por enquanto.');
+    await zapiService.enviarTexto(
+      telefone,
+      `${sortearFrase(FRASES_NAO_ENTENDI)} Responde *1* pra reagendar ou *2* pra não por enquanto.`
+    );
     return;
   }
 
   if (indice === 1) {
     limparEstado(telefone);
-    await zapiService.enviarTexto(telefone, 'Tudo bem! Quando quiser marcar um novo horário, é só me chamar 💕');
+    await zapiService.enviarTexto(
+      telefone,
+      `Tudo bem! Quando quiser marcar um novo horário, é só me chamar 💕 ${sortearFrase(FRASES_DESPEDIDA)}`
+    );
     return;
   }
 

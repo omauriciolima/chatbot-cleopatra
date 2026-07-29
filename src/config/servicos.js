@@ -19,8 +19,18 @@ const SERVICOS_EMOJI = {
   'Alongamento em Gel': '💎',
 };
 
+// Prazo (em dias) até o serviço "vencer" e valer a pena lembrar a cliente de agendar uma
+// manutenção (ver lembreteHandler.js). Cada serviço tem uma durabilidade típica diferente.
+const PRAZOS_MANUTENCAO_DIAS = {
+  Manicure: 15,
+  Pedicure: 20,
+  'Manicure + Pedicure': 15,
+  'Alongamento em Gel': 21,
+};
+
 module.exports = {
   SERVICOS,
   SERVICOS_PRECOS,
   SERVICOS_EMOJI,
+  PRAZOS_MANUTENCAO_DIAS,
 };

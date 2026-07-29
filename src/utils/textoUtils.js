@@ -47,6 +47,8 @@ const INTENCOES = {
   CANCELAR: 'CANCELAR',
   VER_AGENDAMENTO: 'VER_AGENDAMENTO',
   FALAR_CLEOPATRA: 'FALAR_CLEOPATRA',
+  PAGAMENTO: 'PAGAMENTO',
+  LOCALIZACAO: 'LOCALIZACAO',
   AGENDAR: 'AGENDAR',
 };
 
@@ -57,8 +59,11 @@ const INTENCOES = {
 // então as intenções mais específicas (frases inteiras) vêm antes das mais genéricas (uma
 // palavra só), pra frase específica não ser "engolida" pela palavra genérica.
 const PALAVRAS_CHAVE_POR_INTENCAO = {
+  // "fica" foi retirado daqui (e só ficou em LOCALIZACAO, mais abaixo): as duas intenções
+  // usam essa palavra sozinha ("quanto fica" vs "onde fica"), mas PRECO já tem "quanto" pra
+  // cobrir esse caso, então "fica" isolado é bem mais associado a "onde fica o salão".
   [INTENCOES.PRECO]: [
-    'preço', 'preços', 'valor', 'valores', 'quanto', 'custa', 'tabela', 'cobram', 'cobrar', 'fica', 'custo',
+    'preço', 'preços', 'valor', 'valores', 'quanto', 'custa', 'tabela', 'cobram', 'cobrar', 'custo',
   ],
   [INTENCOES.CANCELAR]: [
     'cancelar', 'cancela', 'cancelo', 'desmarcar', 'desmarco', 'desmarque', 'não vou', 'nao vou',
@@ -70,6 +75,12 @@ const PALAVRAS_CHAVE_POR_INTENCAO = {
   [INTENCOES.FALAR_CLEOPATRA]: [
     'falar com', 'chamar', 'atendente', 'humano', 'pessoa',
     'cleópatra', 'cleopatra', 'responsável', 'responsavel', 'dono', 'dona',
+  ],
+  [INTENCOES.PAGAMENTO]: [
+    'pagamento', 'pagar', 'pix', 'cartão', 'cartao', 'dinheiro', 'aceita', 'forma', 'troco',
+  ],
+  [INTENCOES.LOCALIZACAO]: [
+    'onde', 'endereço', 'endereco', 'localização', 'localizacao', 'fica', 'como chego', 'maps', 'chegar',
   ],
   [INTENCOES.AGENDAR]: [
     'agendar', 'agenda', 'marcar', 'marca', 'quero marcar', 'quero agendar', 'horário', 'horario',
@@ -102,9 +113,32 @@ function detectarIntencao(mensagem) {
   return null;
 }
 
+// Humanização (persona Cléo): listas de frases que o bot sorteia aleatoriamente em vez de
+// repetir sempre o mesmo texto, usadas junto com sortearFrase() nos handlers.
+const FRASES_CONFIRMACAO = ['Ótimo! 😊', 'Perfeito! 💅', 'Que boa escolha! ✨', 'Adorei! 👑', 'Maravilha! 😍'];
+
+const FRASES_DESPEDIDA = [
+  'Até logo! 💙', 'Te esperamos! 👑', 'Vai ficar linda! 💅✨', 'Até breve! 😊', 'Com carinho, Cléo 💕',
+];
+
+const FRASES_NAO_ENTENDI = [
+  'Hmm, não entendi muito bem 😅', 'Pode repetir de outro jeito? 😊',
+  'Não captei bem, me diz de novo! 💕', 'Eita, não entendi! Me ajuda? 😅',
+];
+
+// Sorteia aleatoriamente uma frase de uma lista (ex: FRASES_CONFIRMACAO), pra variar as
+// respostas do bot em vez de repetir sempre o mesmo texto.
+function sortearFrase(lista) {
+  return lista[Math.floor(Math.random() * lista.length)];
+}
+
 module.exports = {
   normalizarTexto,
   interpretarEscolha,
   INTENCOES,
   detectarIntencao,
+  sortearFrase,
+  FRASES_CONFIRMACAO,
+  FRASES_DESPEDIDA,
+  FRASES_NAO_ENTENDI,
 };
