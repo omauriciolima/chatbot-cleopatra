@@ -22,7 +22,12 @@ banco de dados de agendamentos e horários disponíveis.
 - **Aviso de lotação**: se o dia escolhido estiver cheio, sugere os próximos dias com vaga.
 - **Histórico da cliente**: guarda o último serviço e o total de visitas na aba Clientes.
 - **Aviso de atraso** (comando da manicure `atraso [minutos]min`) para todas as clientes do dia.
-- **Pesquisa de satisfação** 2h após o atendimento, com nota de 1 a 5 salva na aba Avaliacoes.
+- **Pesquisa de satisfação** 2h após o atendimento, com nota de 1 a 5 salva na aba Avaliacoes; nota 1
+  ou 2 avisa a manicure na hora com os dados do atendimento.
+- **Status pós-atendimento automático**: 30min após o horário marcado, o agendamento vira "concluido"
+  (evita mandar pesquisa de satisfação pra quem não compareceu).
+- **Mensagem de saudade** para clientes que não agendam há mais de 30 dias, enviada automaticamente
+  todo dia às 10h (sem repetir antes de 30 dias pra mesma cliente).
 - **Comandos administrativos** para a manicure (`agenda hoje`, `agenda amanhã`, `cancelar [nome]`,
   `atraso [minutos]min`) via o número configurado em `NUMERO_MANICURE`.
 - **Lembretes automáticos** de 24h e 2h antes do horário marcado, com job agendado que roda a cada 10
@@ -37,7 +42,7 @@ src/
   handlers/
     clienteHandler.js        # fluxo de agendamento do cliente
     manicureHandler.js       # comandos administrativos
-    lembreteHandler.js       # job de lembretes 24h/2h
+    lembreteHandler.js       # job de lembretes 24h/2h, status pós-atendimento, avaliação e saudade
   services/
     zapiService.js           # integração com a Z-API
     sheetsService.js         # integração com o Google Sheets
