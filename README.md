@@ -17,7 +17,7 @@ banco de dados de agendamentos e horários disponíveis.
 - **Confirmação de presença** no lembrete de 24h (responde SIM/NÃO), cancelando automaticamente e
   avisando a manicure em caso de NÃO.
 - **Lista de preços** sob demanda (`preços`, `valores`, `quanto custa`), editável no código.
-- **Horário de funcionamento**: avisa quando o salão está fechado (seg a sáb, 9h–19h), mas o
+- **Horário de funcionamento**: avisa quando o salão está fechado (seg a sáb, 8h–18h), mas o
   agendamento pelo bot continua disponível 24h.
 - **Aviso de lotação**: se o dia escolhido estiver cheio, sugere os próximos dias com vaga.
 - **Histórico da cliente**: guarda o último serviço e o total de visitas na aba Clientes.

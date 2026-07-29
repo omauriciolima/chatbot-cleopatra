@@ -52,7 +52,7 @@ const PALAVRAS_SAUDACAO = [
 ];
 
 const MENSAGEM_FORA_DO_HORARIO =
-  'Olá! Estamos fechados agora 😊 Nosso horário é de seg a sáb, das 9h às 19h. ' +
+  'Olá! Estamos fechados agora 😊 Nosso horário é de seg a sáb, das 8h às 18h. ' +
   'Mas pode agendar aqui pelo bot a qualquer hora!';
 
 // Ponto de entrada: recebe telefone + texto da mensagem e conduz a conversa.

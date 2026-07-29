@@ -130,7 +130,7 @@ function diasDesde(dataISO) {
 }
 
 // Feature 6 (horário de funcionamento): true se agora está dentro do funcionamento do
-// salão (segunda a sábado, 9h às 19h). O agendamento pelo bot continua liberado 24h,
+// salão (segunda a sábado, 8h às 18h). O agendamento pelo bot continua liberado 24h,
 // esta função só é usada para decidir se mostramos o aviso de "estamos fechados".
 function estaDentroDoHorarioComercial() {
   const data = agora();
@@ -138,7 +138,7 @@ function estaDentroDoHorarioComercial() {
   const hora = data.getHours();
 
   const ehDiaUtilOuSabado = diaSemanaIndex >= 1 && diaSemanaIndex <= 6;
-  const dentroDoHorario = hora >= 9 && hora < 19;
+  const dentroDoHorario = hora >= 8 && hora < 18;
 
   return ehDiaUtilOuSabado && dentroDoHorario;
 }
