@@ -9,7 +9,7 @@
 const zapiService = require('../services/zapiService');
 const sheetsService = require('../services/sheetsService');
 const { ETAPAS, obterEstado, atualizarEstado, limparEstado } = require('../utils/stateManager');
-const { interpretarEscolha, normalizarTexto } = require('../utils/textoUtils');
+const { interpretarEscolha, normalizarTexto, detectarIntencao, INTENCOES } = require('../utils/textoUtils');
 const { proximosDiasUteis, estaDentroDoHorarioComercial } = require('../utils/dateUtils');
 const { SERVICOS, SERVICOS_PRECOS, SERVICOS_EMOJI } = require('../config/servicos');
 
@@ -42,8 +42,6 @@ const PALAVRAS_SAUDACAO = [
   'bom dia', 'boa tarde', 'boa noite', 'iniciar', 'comecar', 'começar',
 ];
 
-const PALAVRAS_PRECO = ['preco', 'precos', 'preços', 'valor', 'valores', 'tabela de precos'];
-
 const MENSAGEM_FORA_DO_HORARIO =
   'Olá! Estamos fechados agora 😊 Nosso horário é de seg a sáb, das 9h às 19h. ' +
   'Mas pode agendar aqui pelo bot a qualquer hora!';
@@ -53,8 +51,9 @@ async function tratarMensagem(telefone, texto) {
   const estado = obterEstado(telefone);
   const textoNormalizado = normalizarTexto(texto);
 
-  // Feature 5: pergunta de preços funciona em qualquer etapa da conversa.
-  if (PALAVRAS_PRECO.includes(textoNormalizado) || textoNormalizado.includes('quanto custa')) {
+  // Feature 5: pergunta de preços funciona em qualquer etapa da conversa, reconhecida por
+  // palavras-chave em linguagem natural (ver detectarIntencao em textoUtils.js).
+  if (detectarIntencao(texto) === INTENCOES.PRECO) {
     await enviarListaPrecos(telefone);
     return;
   }
@@ -137,6 +136,30 @@ async function tratarMensagemInicial(telefone, texto) {
   }
 
   if (indiceMenu === 4) {
+    await falarComCleopatra(telefone);
+    return;
+  }
+
+  // Não bateu com nenhuma opção numerada/exata do menu — tenta reconhecer a intenção por
+  // palavras-chave, em linguagem natural (ex: "quero marcar um horário", "quando marquei?").
+  const intencao = detectarIntencao(texto);
+
+  if (intencao === INTENCOES.AGENDAR) {
+    await iniciarConversa(telefone);
+    return;
+  }
+
+  if (intencao === INTENCOES.VER_AGENDAMENTO) {
+    await mostrarMeuAgendamento(telefone);
+    return;
+  }
+
+  if (intencao === INTENCOES.CANCELAR) {
+    await iniciarFluxoCancelamento(telefone);
+    return;
+  }
+
+  if (intencao === INTENCOES.FALAR_CLEOPATRA) {
     await falarComCleopatra(telefone);
     return;
   }

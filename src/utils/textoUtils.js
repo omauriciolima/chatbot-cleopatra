@@ -40,7 +40,71 @@ function interpretarEscolha(textoRecebido, opcoes) {
   return indicePorTexto;
 }
 
+// Nomes das intenções que detectarIntencao reconhece (ver PALAVRAS_CHAVE_POR_INTENCAO logo
+// abaixo). Uso o mesmo padrão de "objeto de constantes" já usado em stateManager.ETAPAS.
+const INTENCOES = {
+  PRECO: 'PRECO',
+  CANCELAR: 'CANCELAR',
+  VER_AGENDAMENTO: 'VER_AGENDAMENTO',
+  FALAR_CLEOPATRA: 'FALAR_CLEOPATRA',
+  AGENDAR: 'AGENDAR',
+};
+
+// Cada intenção tem uma lista de palavras/expressões-chave que, se aparecerem em qualquer
+// parte da mensagem, indicam essa intenção. A ORDEM das chaves importa: é a ordem em que
+// detectarIntencao testa cada intenção, e algumas palavras-chave são substrings de outras
+// (ex: "horario" aparece tanto em VER_AGENDAMENTO — "tenho horario" — quanto em AGENDAR),
+// então as intenções mais específicas (frases inteiras) vêm antes das mais genéricas (uma
+// palavra só), pra frase específica não ser "engolida" pela palavra genérica.
+const PALAVRAS_CHAVE_POR_INTENCAO = {
+  [INTENCOES.PRECO]: [
+    'preço', 'preços', 'valor', 'valores', 'quanto', 'custa', 'tabela', 'cobram', 'cobrar', 'fica', 'custo',
+  ],
+  [INTENCOES.CANCELAR]: [
+    'cancelar', 'cancela', 'cancelo', 'desmarcar', 'desmarco', 'desmarque', 'não vou', 'nao vou',
+  ],
+  [INTENCOES.VER_AGENDAMENTO]: [
+    'meu agendamento', 'minha agenda', 'quando marquei', 'que dia marquei',
+    'tenho horário', 'tenho horario', 'meu horário', 'meu horario',
+  ],
+  [INTENCOES.FALAR_CLEOPATRA]: [
+    'falar com', 'chamar', 'atendente', 'humano', 'pessoa',
+    'cleópatra', 'cleopatra', 'responsável', 'responsavel', 'dono', 'dona',
+  ],
+  [INTENCOES.AGENDAR]: [
+    'agendar', 'agenda', 'marcar', 'marca', 'quero marcar', 'quero agendar', 'horário', 'horario',
+  ],
+};
+
+// Pré-normaliza as palavras-chave uma única vez (em vez de normalizar a cada chamada de
+// detectarIntencao), já que a lista acima é fixa.
+const PALAVRAS_CHAVE_NORMALIZADAS = Object.fromEntries(
+  Object.entries(PALAVRAS_CHAVE_POR_INTENCAO).map(([intencao, palavras]) => [
+    intencao,
+    palavras.map((palavra) => normalizarTexto(palavra)),
+  ])
+);
+
+// Reconhece a intenção da cliente por palavras-chave, em linguagem natural (não precisa ser
+// a frase exata) — ex: "quanto custa a manicure?" ou "quero marcar um horário" também são
+// reconhecidas, não só "preço" ou "agendar" isoladas. Retorna uma das chaves de INTENCOES, ou
+// null se a mensagem não contiver nenhuma palavra-chave conhecida.
+function detectarIntencao(mensagem) {
+  const textoNormalizado = normalizarTexto(mensagem);
+  if (!textoNormalizado) return null;
+
+  for (const [intencao, palavrasChave] of Object.entries(PALAVRAS_CHAVE_NORMALIZADAS)) {
+    if (palavrasChave.some((palavra) => textoNormalizado.includes(palavra))) {
+      return intencao;
+    }
+  }
+
+  return null;
+}
+
 module.exports = {
   normalizarTexto,
   interpretarEscolha,
+  INTENCOES,
+  detectarIntencao,
 };
