@@ -471,7 +471,12 @@ async function tratarConfirmacao(telefone, texto) {
   });
 
   // Feature 8: guarda o último serviço e soma 1 na contagem de visitas da cliente.
-  await sheetsService.registrarAtendimentoCliente({ telefone, nome: estado.nome, servico: estado.servico });
+  await sheetsService.registrarAtendimentoCliente({
+    telefone,
+    nome: estado.nome,
+    servico: estado.servico,
+    dataBR: estado.dataBR,
+  });
 
   const { nome, diaLabel, horario } = estado;
   limparEstado(telefone);
@@ -585,9 +590,22 @@ async function tratarAvaliacao(telefone, texto) {
     return;
   }
 
-  await sheetsService.salvarAvaliacao({ telefone, nome: estado.avaliacaoNome, nota });
+  const { nome, servico, data, horario } = estado.avaliacaoInfo || {};
+  await sheetsService.salvarAvaliacao({ telefone, nome, nota });
   limparEstado(telefone);
   await zapiService.enviarTexto(telefone, 'Muito obrigada pela avaliação! 💖 Isso ajuda demais a Cleópatra a continuar melhorando.');
+
+  // Nota baixa (1 ou 2): avisa a manicure na hora pra ela poder resolver com a cliente.
+  if (nota <= 2 && NUMERO_MANICURE) {
+    await zapiService.enviarTexto(
+      NUMERO_MANICURE,
+      `⚠️ Avaliação baixa recebida!\n` +
+        `Cliente: ${nome}\n` +
+        `Nota: ${nota}\n` +
+        `Atendimento: ${data} às ${horario}\n` +
+        `Serviço: ${servico}`
+    );
+  }
 }
 
 // Resposta da cliente à pergunta de reagendamento enviada pela manicure depois de um

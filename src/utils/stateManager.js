@@ -24,7 +24,7 @@ const ETAPAS = {
 
 // telefone -> { etapa, nome, servico, dataISO, dataBR, horario, diasDisponiveis,
 //               horariosDisponiveis, ultimoServico, agendamentoParaCancelar,
-//               confirmacaoPresenca, avaliacaoNome }
+//               confirmacaoPresenca, avaliacaoInfo }
 const estados = new Map();
 
 function obterEstado(telefone) {

@@ -118,6 +118,17 @@ function listarDatasEntre(dataInicioISO, dataFimISO) {
   return datas;
 }
 
+// Diferença em dias (inteiro) entre uma data ISO passada e hoje. Usado pela mensagem de
+// saudade (cliente sumida), que precisa saber há quantos dias a cliente não agenda.
+function diasDesde(dataISO) {
+  const [ano, mes, dia] = dataISO.split('-').map(Number);
+  const data = new Date(ano, mes - 1, dia);
+  const hoje = agora();
+  hoje.setHours(0, 0, 0, 0);
+  const diffMs = hoje.getTime() - data.getTime();
+  return Math.round(diffMs / (24 * 60 * 60 * 1000));
+}
+
 // Feature 6 (horário de funcionamento): true se agora está dentro do funcionamento do
 // salão (segunda a sábado, 9h às 19h). O agendamento pelo bot continua liberado 24h,
 // esta função só é usada para decidir se mostramos o aviso de "estamos fechados".
@@ -142,5 +153,6 @@ module.exports = {
   listarDatasEntre,
   combinarDataHorario,
   minutosAte,
+  diasDesde,
   estaDentroDoHorarioComercial,
 };

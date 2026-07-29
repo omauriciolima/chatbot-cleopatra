@@ -6,7 +6,12 @@
 //    (as colunas depois de "status" foram adicionadas além das exigidas pelo escopo,
 //    apenas para o bot controlar o que já foi enviado/perguntado e não duplicar nada)
 //  - "Horarios_Disponiveis": dia_semana | horario | disponivel
-//  - "Clientes": telefone | nome | ultimo_servico | total_visitas | data_cadastro
+//  - "Clientes": telefone | nome | ultimo_servico | total_visitas | data_cadastro |
+//    observacoes | data_ultimo_agendamento | data_envio_saudade
+//    (as colunas F, G e H também são extras do bot: F guarda observação livre da manicure,
+//    G guarda a data do último agendamento feito — usada pra detectar cliente sumida — e
+//    H guarda a data em que a última mensagem de saudade foi enviada, pra não repetir
+//    antes de 30 dias)
 //  - "Avaliacoes": telefone | nome | nota | data
 //
 // Datas são gravadas no formato brasileiro "DD/MM/YYYY", igual à visualização da manicure na planilha.
@@ -14,7 +19,7 @@
 const fs = require('fs');
 const path = require('path');
 const { google } = require('googleapis');
-const { converterBRparaISO, minutosAte, agora, formatarISO, formatarBR } = require('../utils/dateUtils');
+const { converterBRparaISO, minutosAte, diasDesde, agora, formatarISO, formatarBR } = require('../utils/dateUtils');
 const { normalizarTexto } = require('../utils/textoUtils');
 
 const ABA_AGENDAMENTOS = 'Agendamentos';
@@ -513,8 +518,11 @@ async function buscarAgendamentosPendentesDeLembrete() {
   return { pendentes24h, pendentes2h };
 }
 
-// Feature 10: busca agendamentos confirmados cujo horário já passou há ~2h e que ainda
-// não receberam o pedido de avaliação.
+// Feature 10: busca agendamentos cujo horário já passou há ~2h e que ainda não receberam
+// o pedido de avaliação. Aceita status "confirmado" ou "concluido": o job de atualização de
+// status (30min após o horário, ver buscarAgendamentosPendentesDeConclusao) normalmente já
+// terá virado o status pra "concluido" bem antes de chegar aqui — "confirmado" fica só como
+// fallback caso aquele job não tenha rodado por algum motivo.
 async function buscarAgendamentosPendentesDeFeedback() {
   const sheets = await obterClienteSheets();
   const { data } = await sheets.spreadsheets.values.get({
@@ -524,9 +532,10 @@ async function buscarAgendamentosPendentesDeFeedback() {
 
   const linhas = data.values || [];
   const pendentes = [];
+  const statusValidos = ['confirmado', 'concluido'];
 
   linhas.forEach((linha, indice) => {
-    if (normalizarTexto(linha[5]) !== 'confirmado') return;
+    if (!statusValidos.includes(normalizarTexto(linha[5]))) return;
 
     const feedbackJaEnviado = normalizarTexto(linha[9]) === 'sim';
     if (feedbackJaEnviado) return;
@@ -544,6 +553,35 @@ async function buscarAgendamentosPendentesDeFeedback() {
         data: linha[3],
         horario: linha[4],
       });
+    }
+  });
+
+  return pendentes;
+}
+
+// Busca agendamentos confirmados cujo horário já passou há ~30min, pra virar o status
+// deles de "confirmado" pra "concluido". Isso evita que uma cliente que não compareceu
+// (e cujo status a manicure não alterou manualmente) continue marcada como "confirmado"
+// indefinidamente e acabe recebendo o pedido de avaliação 2h depois.
+async function buscarAgendamentosPendentesDeConclusao() {
+  const sheets = await obterClienteSheets();
+  const { data } = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `${ABA_AGENDAMENTOS}!A2:J`,
+  });
+
+  const linhas = data.values || [];
+  const pendentes = [];
+
+  linhas.forEach((linha, indice) => {
+    if (normalizarTexto(linha[5]) !== 'confirmado') return;
+
+    const dataISO = converterBRparaISO(linha[3]);
+    const minutos = minutosAte(dataISO, linha[4]);
+
+    // Janela de +-15min ao redor de "30min atrás" (minutos negativo = já passou).
+    if (minutos <= -15 && minutos >= -45) {
+      pendentes.push({ numeroLinhaSheet: indice + 2 });
     }
   });
 
@@ -693,16 +731,18 @@ async function cadastrarCliente({ telefone, nome }) {
 
 // Feature 8: depois de um agendamento confirmado, atualiza (ou cria, se por algum motivo
 // ainda não existir) o registro da cliente com o último serviço e +1 na contagem de visitas.
-async function registrarAtendimentoCliente({ telefone, nome, servico }) {
+// Também grava a data do agendamento na coluna G (data_ultimo_agendamento), usada pela
+// mensagem de saudade (cliente sumida) pra saber há quanto tempo ela não agenda.
+async function registrarAtendimentoCliente({ telefone, nome, servico, dataBR }) {
   const cliente = await buscarCliente(telefone);
   const sheets = await obterClienteSheets();
 
   if (!cliente) {
     await sheets.spreadsheets.values.append({
       spreadsheetId: SPREADSHEET_ID,
-      range: `${ABA_CLIENTES}!A:E`,
+      range: `${ABA_CLIENTES}!A:G`,
       valueInputOption: 'USER_ENTERED',
-      requestBody: { values: [[telefone, nome, servico, 1, hojeFormatadoBR()]] },
+      requestBody: { values: [[telefone, nome, servico, 1, hojeFormatadoBR(), '', dataBR]] },
     });
     return;
   }
@@ -712,6 +752,57 @@ async function registrarAtendimentoCliente({ telefone, nome, servico }) {
     range: `${ABA_CLIENTES}!C${cliente.numeroLinhaSheet}:D${cliente.numeroLinhaSheet}`,
     valueInputOption: 'USER_ENTERED',
     requestBody: { values: [[servico, cliente.totalVisitas + 1]] },
+  });
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `${ABA_CLIENTES}!G${cliente.numeroLinhaSheet}`,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: { values: [[dataBR]] },
+  });
+}
+
+// Mensagem de saudade: busca clientes que não agendam há mais de 30 dias (com base na
+// coluna G, data_ultimo_agendamento, ou na data de cadastro se ela nunca tiver agendado por
+// esse número) e que não receberam a mensagem de saudade nos últimos 30 dias (coluna H).
+async function buscarClientesSumidas() {
+  const sheets = await obterClienteSheets();
+  const { data } = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `${ABA_CLIENTES}!A2:H`,
+  });
+
+  const linhas = data.values || [];
+  const sumidas = [];
+
+  linhas.forEach((linha, indice) => {
+    const nome = linha[1];
+    if (!nome) return;
+
+    const dataUltimoAgendamentoBR = linha[6] || linha[4]; // fallback pra data_cadastro
+    if (!dataUltimoAgendamentoBR) return;
+
+    const diasSemAgendar = diasDesde(converterBRparaISO(dataUltimoAgendamentoBR));
+    if (diasSemAgendar < 30) return;
+
+    const dataEnvioSaudadeBR = linha[7];
+    if (dataEnvioSaudadeBR && diasDesde(converterBRparaISO(dataEnvioSaudadeBR)) < 30) return;
+
+    sumidas.push({ numeroLinhaSheet: indice + 2, telefone: linha[0], nome });
+  });
+
+  return sumidas;
+}
+
+// Mensagem de saudade: grava a data de hoje na coluna H (data_envio_saudade) pra não
+// mandar a mesma mensagem de novo antes de 30 dias.
+async function marcarSaudadeEnviada(numeroLinhaSheet) {
+  const sheets = await obterClienteSheets();
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `${ABA_CLIENTES}!H${numeroLinhaSheet}`,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: { values: [[hojeFormatadoBR()]] },
   });
 }
 
@@ -746,6 +837,7 @@ module.exports = {
   buscarUltimoAgendamentoPorTelefone,
   buscarAgendamentosPendentesDeLembrete,
   buscarAgendamentosPendentesDeFeedback,
+  buscarAgendamentosPendentesDeConclusao,
   marcarLembreteEnviado,
   marcarFeedbackEnviado,
   buscarCliente,
@@ -755,4 +847,6 @@ module.exports = {
   cadastrarCliente,
   registrarAtendimentoCliente,
   salvarAvaliacao,
+  buscarClientesSumidas,
+  marcarSaudadeEnviada,
 };
