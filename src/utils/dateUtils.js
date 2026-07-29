@@ -100,6 +100,24 @@ function minutosAte(dataISO, horario) {
   return Math.round(diffMs / 60000);
 }
 
+// Comandos administrativos (folga/férias): lista todas as datas ISO entre duas datas ISO,
+// incluindo início e fim.
+function listarDatasEntre(dataInicioISO, dataFimISO) {
+  const [anoInicio, mesInicio, diaInicio] = dataInicioISO.split('-').map(Number);
+  const [anoFim, mesFim, diaFim] = dataFimISO.split('-').map(Number);
+
+  const cursor = new Date(anoInicio, mesInicio - 1, diaInicio);
+  const fim = new Date(anoFim, mesFim - 1, diaFim);
+  const datas = [];
+
+  while (cursor <= fim) {
+    datas.push(formatarISO(cursor));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return datas;
+}
+
 // Feature 6 (horário de funcionamento): true se agora está dentro do funcionamento do
 // salão (segunda a sábado, 9h às 19h). O agendamento pelo bot continua liberado 24h,
 // esta função só é usada para decidir se mostramos o aviso de "estamos fechados".
@@ -121,6 +139,7 @@ module.exports = {
   converterBRparaISO,
   nomeDiaSemana,
   proximosDiasUteis,
+  listarDatasEntre,
   combinarDataHorario,
   minutosAte,
   estaDentroDoHorarioComercial,

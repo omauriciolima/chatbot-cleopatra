@@ -17,6 +17,9 @@ const ETAPAS = {
   AGUARDANDO_CONFIRMACAO_PRESENCA: 'AGUARDANDO_CONFIRMACAO_PRESENCA',
   // Resposta à pesquisa de satisfação enviada 2h após o horário (feature 10).
   AGUARDANDO_AVALIACAO: 'AGUARDANDO_AVALIACAO',
+  // Resposta ao aviso de cancelamento feito pela manicure (cancelar dia/hora/nome, folga
+  // ou férias — ver manicureHandler.js), perguntando se a cliente quer reagendar.
+  AGUARDANDO_REAGENDAR_APOS_CANCELAMENTO: 'AGUARDANDO_REAGENDAR_APOS_CANCELAMENTO',
 };
 
 // telefone -> { etapa, nome, servico, dataISO, dataBR, horario, diasDisponiveis,

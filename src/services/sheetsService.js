@@ -21,6 +21,12 @@ const ABA_AGENDAMENTOS = 'Agendamentos';
 const ABA_HORARIOS = 'Horarios_Disponiveis';
 const ABA_CLIENTES = 'Clientes';
 const ABA_AVALIACOES = 'Avaliacoes';
+// Comandos administrativos (folga/férias): datas específicas bloqueadas pela manicure.
+// Importante: é uma aba separada de Horarios_Disponiveis de propósito — aquela guarda a
+// grade recorrente por dia da semana (ex: toda segunda), então marcar "disponivel" como
+// FALSE lá bloquearia o dia da semana inteiro em todas as semanas futuras, não só a data
+// pedida. Aqui guardamos "data | motivo" (DD/MM/YYYY | folga/ferias).
+const ABA_DIAS_BLOQUEADOS = 'Dias_Bloqueados';
 
 // ID da planilha (GOOGLE_SHEETS_ID) e caminho do arquivo JSON da conta de serviço
 // (GOOGLE_CREDENTIALS_PATH), ambos configurados no .env.
@@ -97,8 +103,12 @@ async function listarHorariosOcupados(dataBR) {
 }
 
 // Cruza os horários configurados para o dia da semana com os já ocupados naquela data,
-// retornando somente os horários realmente livres.
+// retornando somente os horários realmente livres. Se a data estiver bloqueada (folga ou
+// férias, comando administrativo — ver ABA_DIAS_BLOQUEADOS), não há horário livre nenhum.
 async function listarHorariosLivres(dataBR, diaSemana) {
+  const bloqueada = await dataEstaBloqueada(dataBR);
+  if (bloqueada) return [];
+
   const [configurados, ocupados] = await Promise.all([
     listarHorariosConfigurados(diaSemana),
     listarHorariosOcupados(dataBR),
@@ -106,6 +116,33 @@ async function listarHorariosLivres(dataBR, diaSemana) {
 
   const ocupadosSet = new Set(ocupados);
   return configurados.filter((horario) => !ocupadosSet.has(horario));
+}
+
+// Comandos administrativos: verifica se uma data (DD/MM/YYYY) está bloqueada por folga/férias.
+async function dataEstaBloqueada(dataBR) {
+  const sheets = await obterClienteSheets();
+  const { data } = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `${ABA_DIAS_BLOQUEADOS}!A2:B`,
+  });
+
+  const linhas = data.values || [];
+  return linhas.some((linha) => linha[0] === dataBR);
+}
+
+// Comandos administrativos ("folga DD/MM" e "ferias DD/MM ate DD/MM"): bloqueia uma data
+// específica, gravando na aba Dias_Bloqueados. Não duplica se a data já estiver bloqueada.
+async function bloquearData(dataBR, motivo) {
+  const jaBloqueada = await dataEstaBloqueada(dataBR);
+  if (jaBloqueada) return;
+
+  const sheets = await obterClienteSheets();
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `${ABA_DIAS_BLOQUEADOS}!A:B`,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: { values: [[dataBR, motivo]] },
+  });
 }
 
 // Grava um novo agendamento confirmado ao final da aba Agendamentos.
@@ -145,6 +182,61 @@ async function listarAgendamentosPorData(dataBR) {
     .sort((a, b) => a.horario.localeCompare(b.horario));
 }
 
+// Comando administrativo "ferias DD/MM ate DD/MM": lê todos os agendamentos confirmados
+// cuja data cai dentro do período (inclusive), ordenados por data e horário.
+async function listarAgendamentosEntreDatas(dataInicioISO, dataFimISO) {
+  const sheets = await obterClienteSheets();
+  const { data } = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `${ABA_AGENDAMENTOS}!A2:J`,
+  });
+
+  const linhas = data.values || [];
+  return linhas
+    .map((linha, indice) => ({ linha, numeroLinhaSheet: indice + 2 }))
+    .filter(({ linha }) => {
+      if (normalizarTexto(linha[5]) !== 'confirmado') return false;
+      const dataISO = converterBRparaISO(linha[3]);
+      return dataISO >= dataInicioISO && dataISO <= dataFimISO;
+    })
+    .map(({ linha, numeroLinhaSheet }) => ({
+      numeroLinhaSheet,
+      nome: linha[0],
+      telefone: linha[1],
+      servico: linha[2],
+      data: linha[3],
+      horario: linha[4],
+    }))
+    .sort((a, b) => (converterBRparaISO(a.data) + a.horario).localeCompare(converterBRparaISO(b.data) + b.horario));
+}
+
+// Comando administrativo "cancelar hora HH:MM [DD/MM]": busca o agendamento confirmado
+// numa data e horário exatos.
+async function buscarAgendamentoPorHorario(dataBR, horario) {
+  const sheets = await obterClienteSheets();
+  const { data } = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `${ABA_AGENDAMENTOS}!A2:J`,
+  });
+
+  const linhas = data.values || [];
+  const indice = linhas.findIndex(
+    (linha) => linha[3] === dataBR && linha[4] === horario && normalizarTexto(linha[5]) === 'confirmado'
+  );
+
+  if (indice === -1) return null;
+
+  const linha = linhas[indice];
+  return {
+    numeroLinhaSheet: indice + 2,
+    nome: linha[0],
+    telefone: linha[1],
+    servico: linha[2],
+    data: linha[3],
+    horario: linha[4],
+  };
+}
+
 // Atualiza o status (coluna F) de um agendamento numa linha específica da planilha.
 // Genérico: usado tanto pelo cancelamento via manicure quanto pelos fluxos de
 // cancelamento/reagendamento e de confirmação de presença da cliente.
@@ -170,9 +262,10 @@ async function atualizarConfirmacaoPresenca(numeroLinhaSheet, valor) {
   });
 }
 
-// Procura o próximo agendamento confirmado de uma cliente (por nome, busca parcial e sem acento)
-// e marca o status como "cancelado". Retorna o agendamento cancelado ou null se não achar.
-async function cancelarAgendamentoPorNome(nomeBusca) {
+// Procura o próximo agendamento confirmado de uma cliente (por nome, busca parcial e sem
+// acento), sem cancelar nada. Usado pelo comando "cancelar [nome]", que mostra o agendamento
+// encontrado e confirma com a manicure antes de efetivamente cancelar.
+async function buscarProximoAgendamentoPorNome(nomeBusca) {
   const sheets = await obterClienteSheets();
   const { data } = await sheets.spreadsheets.values.get({
     spreadsheetId: SPREADSHEET_ID,
@@ -197,9 +290,8 @@ async function cancelarAgendamentoPorNome(nomeBusca) {
   if (candidatos.length === 0) return null;
 
   const escolhido = candidatos[0];
-  await atualizarStatusAgendamento(escolhido.numeroLinhaSheet, 'cancelado');
-
   return {
+    numeroLinhaSheet: escolhido.numeroLinhaSheet,
     nome: escolhido.linha[0],
     telefone: escolhido.linha[1],
     servico: escolhido.linha[2],
@@ -423,11 +515,15 @@ async function salvarAvaliacao({ telefone, nome, nota }) {
 
 module.exports = {
   listarHorariosLivres,
+  dataEstaBloqueada,
+  bloquearData,
   salvarAgendamento,
   listarAgendamentosPorData,
+  listarAgendamentosEntreDatas,
+  buscarAgendamentoPorHorario,
   atualizarStatusAgendamento,
   atualizarConfirmacaoPresenca,
-  cancelarAgendamentoPorNome,
+  buscarProximoAgendamentoPorNome,
   buscarProximoAgendamentoPorTelefone,
   buscarAgendamentosPendentesDeLembrete,
   buscarAgendamentosPendentesDeFeedback,

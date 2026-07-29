@@ -64,7 +64,19 @@ Passo a passo completo pra deixar o bot funcionando: Google Sheets, Z-API e depl
    |---|---|---|---|
    | telefone | nome | nota | data |
 
-6. Copie o **ID da planilha** — é o trecho da URL entre `/d/` e `/edit`:
+6. Crie uma quinta aba chamada **Dias_Bloqueados**, usada pelos comandos administrativos
+   `folga DD/MM` e `ferias DD/MM ate DD/MM` (ver README/manicureHandler), com os cabeçalhos:
+
+   | A | B |
+   |---|---|
+   | data | motivo |
+
+   O bot preenche essa aba sozinho (`data` no formato `DD/MM/YYYY`, `motivo` = `folga` ou
+   `ferias`). Ela é separada da aba **Horarios_Disponiveis** de propósito: aquela guarda a
+   grade recorrente por dia da semana, então bloquear um dia específico ali bloquearia esse
+   dia da semana em todas as semanas futuras. Aqui cada linha bloqueia só uma data exata.
+
+7. Copie o **ID da planilha** — é o trecho da URL entre `/d/` e `/edit`:
    `https://docs.google.com/spreadsheets/d/ESTE_TRECHO_AQUI/edit`
 
 ## 3. Criar a conta de serviço do Google (acesso à planilha)

@@ -109,6 +109,9 @@ async function tratarMensagem(telefone, texto) {
     case ETAPAS.AGUARDANDO_AVALIACAO:
       await tratarAvaliacao(telefone, texto);
       break;
+    case ETAPAS.AGUARDANDO_REAGENDAR_APOS_CANCELAMENTO:
+      await tratarReagendarAposCancelamentoManicure(telefone, texto);
+      break;
     default:
       limparEstado(telefone);
       await tratarMensagemInicial(telefone, texto);
@@ -576,6 +579,27 @@ async function tratarAvaliacao(telefone, texto) {
   await sheetsService.salvarAvaliacao({ telefone, nome: estado.avaliacaoNome, nota });
   limparEstado(telefone);
   await zapiService.enviarTexto(telefone, 'Muito obrigada pela avaliação! 💖 Isso ajuda demais a Cleópatra a continuar melhorando.');
+}
+
+// Resposta da cliente à pergunta de reagendamento enviada pela manicure depois de um
+// cancelamento administrativo (comandos "cancelar dia/hora/[nome]", "folga" ou "ferias" —
+// ver manicureHandler.js).
+async function tratarReagendarAposCancelamentoManicure(telefone, texto) {
+  const estado = obterEstado(telefone);
+  const indice = interpretarEscolha(texto, ['Sim, quero reagendar', 'Não por enquanto']);
+
+  if (indice === -1) {
+    await zapiService.enviarTexto(telefone, 'Não entendi 🙏 Responde *1* pra reagendar ou *2* pra não por enquanto.');
+    return;
+  }
+
+  if (indice === 1) {
+    limparEstado(telefone);
+    await zapiService.enviarTexto(telefone, 'Tudo bem! Quando quiser marcar um novo horário, é só me chamar 💕');
+    return;
+  }
+
+  await enviarMenuServicos(telefone, `Show, ${estado.nome}! Bora marcar um novo horário? 💅 Qual serviço você quer agendar?`);
 }
 
 module.exports = {
