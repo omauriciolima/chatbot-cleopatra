@@ -45,7 +45,13 @@ const MENSAGEM_AJUDA =
   '👥 *clientes* — lista todas as clientes cadastradas\n' +
   '⏰ *atraso [minutos]min* — avisa todas as clientes de hoje sobre um atraso';
 
-async function tratarMensagem(telefone, texto) {
+async function tratarMensagem(telefone, texto, tipo) {
+  // Áudio, imagem, vídeo, documento, figurinha etc. não são comandos válidos: só processamos texto.
+  if (tipo && !zapiService.ehMensagemDeTexto(tipo)) {
+    await responderMensagemDeMidia(telefone);
+    return;
+  }
+
   const estado = obterEstado(telefone);
 
   switch (estado.etapa) {
@@ -168,6 +174,15 @@ async function tratarMensagem(telefone, texto) {
   }
 
   await zapiService.enviarTexto(telefone, MENSAGEM_AJUDA);
+}
+
+// Resposta padrão quando a manicure manda qualquer mídia (áudio, imagem, vídeo, documento,
+// figurinha etc.) em vez de um comando de texto.
+async function responderMensagemDeMidia(telefone) {
+  await zapiService.enviarTexto(
+    telefone,
+    '⚠️ Comando não reconhecido.\nSó processo mensagens de texto.\nDigite *agenda hoje* para ver os agendamentos.'
+  );
 }
 
 function dataDeHoje() {

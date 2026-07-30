@@ -24,16 +24,21 @@ app.post('/webhook', async (req, res) => {
   res.sendStatus(200);
 
   try {
-    const { telefone, texto, fromMe } = zapiService.extrairMensagemRecebida(req.body);
+    const { telefone, texto, fromMe, tipo } = zapiService.extrairMensagemRecebida(req.body);
 
-    if (fromMe || !telefone || !texto) {
+    // Mensagens de mídia (áudio, imagem, vídeo, documento, figurinha etc.) não têm "texto",
+    // mas ainda assim são repassadas ao handler correto, que decide como responder a elas
+    // (ver tratarMensagem em clienteHandler.js e manicureHandler.js).
+    const ehTexto = zapiService.ehMensagemDeTexto(tipo);
+
+    if (fromMe || !telefone || (ehTexto && !texto)) {
       return;
     }
 
     if (telefone === NUMERO_MANICURE) {
-      await manicureHandler.tratarMensagem(telefone, texto);
+      await manicureHandler.tratarMensagem(telefone, texto, tipo);
     } else {
-      await clienteHandler.tratarMensagem(telefone, texto);
+      await clienteHandler.tratarMensagem(telefone, texto, tipo);
     }
   } catch (erro) {
     console.error('Erro ao processar mensagem do webhook:', erro);

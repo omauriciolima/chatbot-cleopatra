@@ -66,11 +66,23 @@ async function enviarOpcoes(telefone, mensagem, opcoes, tituloLista = 'Opções'
   }
 }
 
-// Extrai telefone, texto e remetente de um payload recebido no webhook da Z-API.
+// Tipos de payload que representam mensagem de texto de fato (a Z-API usa "text" ou "chat"
+// dependendo do formato do evento). Qualquer outro tipo ("audio", "ptt", "image", "video",
+// "document", "sticker" etc.) é mídia, que os handlers não sabem processar.
+const TIPOS_TEXTO = ['text', 'chat'];
+
+function ehMensagemDeTexto(tipo) {
+  return TIPOS_TEXTO.includes(tipo);
+}
+
+// Extrai telefone, texto, tipo e remetente de um payload recebido no webhook da Z-API.
 // Cobre os formatos mais comuns: mensagem de texto simples, resposta de lista e resposta de botão.
+// O campo "type" do payload indica o tipo da mensagem (ver TIPOS_TEXTO acima); quando ausente,
+// assumimos "text" (payloads antigos de texto simples nem sempre trazem esse campo).
 function extrairMensagemRecebida(payload) {
   const telefone = normalizarTelefone(payload.phone);
   const fromMe = Boolean(payload.fromMe);
+  const tipo = payload.type || 'text';
 
   let texto = '';
   if (payload.text && payload.text.message) {
@@ -81,7 +93,7 @@ function extrairMensagemRecebida(payload) {
     texto = payload.buttonsResponseMessage.buttonText || payload.buttonsResponseMessage.message || '';
   }
 
-  return { telefone, texto: texto.trim(), fromMe };
+  return { telefone, texto: texto.trim(), fromMe, tipo };
 }
 
 module.exports = {
@@ -89,4 +101,5 @@ module.exports = {
   enviarTexto,
   enviarOpcoes,
   extrairMensagemRecebida,
+  ehMensagemDeTexto,
 };

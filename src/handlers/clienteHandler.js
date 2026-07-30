@@ -55,8 +55,15 @@ const MENSAGEM_FORA_DO_HORARIO =
   'Olá! Estamos fechados agora 😊 Nosso horário é de seg a sáb, das 8h às 18h. ' +
   'Mas pode agendar aqui pelo bot a qualquer hora!';
 
-// Ponto de entrada: recebe telefone + texto da mensagem e conduz a conversa.
-async function tratarMensagem(telefone, texto) {
+// Ponto de entrada: recebe telefone, texto e tipo da mensagem (ver zapiService.extrairMensagemRecebida)
+// e conduz a conversa.
+async function tratarMensagem(telefone, texto, tipo) {
+  // Áudio, imagem, vídeo, documento, figurinha etc.: a Cléo só entende texto por enquanto.
+  if (tipo && !zapiService.ehMensagemDeTexto(tipo)) {
+    await responderMensagemDeMidia(telefone);
+    return;
+  }
+
   const estado = obterEstado(telefone);
   const textoNormalizado = normalizarTexto(texto);
 
@@ -188,6 +195,17 @@ async function tratarMensagemInicial(telefone, texto) {
   }
 
   await enviarMenuFallback(telefone);
+}
+
+// Resposta padrão quando a cliente manda qualquer mídia (áudio, imagem, vídeo, documento,
+// figurinha etc.) em vez de texto.
+async function responderMensagemDeMidia(telefone) {
+  await zapiService.enviarTexto(
+    telefone,
+    'Oi! 😊 Aqui é a Cléo, secretária virtual do *Espaço Cleópatra*!\n\n' +
+      'Por enquanto só consigo ler mensagens de texto.\n' +
+      'Pode me mandar sua dúvida escrita que te ajudo rapidinho! 💅'
+  );
 }
 
 async function enviarMenuFallback(telefone) {
