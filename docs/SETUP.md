@@ -1,12 +1,13 @@
 # SETUP — Chatbot Espaço Cleópatra
 
-Passo a passo completo pra deixar o bot funcionando: Google Sheets, Z-API e deploy no Railway.
+Passo a passo completo pra deixar o bot funcionando: Google Sheets, Evolution API e deploy no Railway.
 
 ## 1. Pré-requisitos
 
 - Node.js 18 ou superior instalado (só necessário se for rodar localmente antes do deploy)
 - Uma conta Google
-- Uma conta na [Z-API](https://www.z-api.io) com um número de WhatsApp conectado
+- Uma instância da [Evolution API](https://doc.evolution-api.com) rodando (self-hosted ou em um
+  provedor de hospedagem) com um número de WhatsApp conectado
 - Uma conta no [Railway](https://railway.app)
 - Um repositório no GitHub com este código
 
@@ -112,13 +113,13 @@ Passo a passo completo pra deixar o bot funcionando: Google Sheets, Z-API e depl
    arquivo JSON), dando permissão de **Editor** — sem isso o bot não consegue ler nem escrever na
    planilha.
 
-## 4. Configurar a Z-API
+## 4. Configurar a Evolution API
 
-1. Crie uma instância em [app.z-api.io](https://app.z-api.io) e conecte o WhatsApp escaneando o QR Code.
-2. Anote o **ID da instância** e o **Token** (aparecem no painel da instância).
-3. Na aba **Segurança**, ative e copie o **Client-Token** da conta.
-4. Configure o **webhook de mensagens recebidas** (na Z-API costuma se chamar "Ao receber",
-   dentro de "Webhooks") apontando para:
+1. Suba uma instância da Evolution API (self-hosted via Docker ou em um provedor de hospedagem) e
+   crie uma instância de WhatsApp, conectando o número escaneando o QR Code.
+2. Anote a **URL base** da sua instância (ex: `https://sua-evolution.exemplo.com`), o **nome da
+   instância** e a **API Key** configurada no servidor.
+3. Configure o **webhook de mensagens recebidas** (evento `MESSAGES_UPSERT`) apontando para:
 
    ```
    https://SEU-APP.up.railway.app/webhook
@@ -131,10 +132,9 @@ Passo a passo completo pra deixar o bot funcionando: Google Sheets, Z-API e depl
 Copie o arquivo `.env.example` para `.env` e preencha:
 
 ```
-ZAPI_INSTANCE_ID=            # ID da instância Z-API
-ZAPI_TOKEN=                   # Token da instância Z-API
-ZAPI_BASE_URL=https://api.z-api.io   # normalmente não precisa mudar
-ZAPI_CLIENT_TOKEN=            # Client-Token de segurança da conta Z-API
+EVOLUTION_BASE_URL=            # URL base da instância da Evolution API
+EVOLUTION_INSTANCE=            # nome da instância criada na Evolution API
+EVOLUTION_API_KEY=             # API Key de autenticação da Evolution API
 NUMERO_MANICURE=               # WhatsApp da manicure, só dígitos, ex: 5511999999999
 GOOGLE_SHEETS_ID=              # ID da planilha
 GOOGLE_CREDENTIALS_PATH=./credentials.json   # caminho do JSON da conta de serviço
@@ -152,9 +152,9 @@ npm install
 npm start
 ```
 
-O servidor sobe em `http://localhost:3000`. Para a Z-API conseguir chamar seu webhook local, use
-uma ferramenta de túnel como o [ngrok](https://ngrok.com) (`ngrok http 3000`) e configure a URL
-gerada (`https://xxxx.ngrok.app/webhook`) no painel da Z-API.
+O servidor sobe em `http://localhost:3000`. Para a Evolution API conseguir chamar seu webhook
+local, use uma ferramenta de túnel como o [ngrok](https://ngrok.com) (`ngrok http 3000`) e
+configure a URL gerada (`https://xxxx.ngrok.app/webhook`) no webhook da instância.
 
 ## 7. Deploy no Railway
 
@@ -165,10 +165,10 @@ gerada (`https://xxxx.ngrok.app/webhook`) no painel da Z-API.
 4. O Railway detecta o `package.json` e roda `npm install` + `npm start` automaticamente.
 5. Depois do primeiro deploy, vá em **Settings > Networking** e gere um domínio público
    (`Generate Domain`). Você vai receber uma URL tipo `https://chatbot-cleopatra.up.railway.app`.
-6. Volte no painel da Z-API e configure o webhook de mensagens recebidas para:
-   `https://chatbot-cleopatra.up.railway.app/webhook`
+6. Volte na configuração da instância da Evolution API e configure o webhook de mensagens
+   recebidas para: `https://chatbot-cleopatra.up.railway.app/webhook`
 
-Pronto! Mande uma mensagem de teste pro número conectado na Z-API para conferir o fluxo de
+Pronto! Mande uma mensagem de teste pro número conectado na Evolution API para conferir o fluxo de
 agendamento, e mande "agenda hoje" do número configurado em `NUMERO_MANICURE` para testar os
 comandos administrativos.
 
@@ -191,8 +191,6 @@ comandos administrativos.
 - **"Nenhum horário disponível" mesmo tendo horários cadastrados**: confira se o valor de
   `dia_semana` na aba Horarios_Disponiveis está exatamente como `segunda`, `terca`, `quarta`,
   `quinta`, `sexta` ou `sabado` (sem acento, minúsculo) e se `disponivel` está como "sim".
-- **Mensagens de lista/botão não aparecem no WhatsApp**: a Z-API muda o formato desse endpoint de
-  tempos em tempos. O bot já tem um fallback automático que envia as opções numeradas como texto
-  simples nesse caso, então o fluxo continua funcionando mesmo assim. Se quiser corrigir a lista
-  visual, confira o endpoint `send-option-list` na documentação atual da Z-API e ajuste apenas o
-  arquivo `src/services/zapiService.js`.
+- **Opções aparecem como texto numerado em vez de lista/botão**: isso é esperado — a Evolution API
+  não tem um endpoint nativo de lista de opções, então o bot sempre envia as opções como texto
+  numerado (`1️⃣`, `2️⃣` etc.) via `enviarOpcoes` em `src/services/evolutionService.js`.

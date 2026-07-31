@@ -1,8 +1,8 @@
 # Chatbot Espaço Cleópatra
 
 Chatbot de agendamento via WhatsApp para o Espaço Cleópatra (manicure), construído com Node.js/Express,
-integrado à [Z-API](https://www.z-api.io) para envio/recebimento de mensagens e ao Google Sheets como
-banco de dados de agendamentos e horários disponíveis.
+integrado à [Evolution API](https://doc.evolution-api.com) para envio/recebimento de mensagens e ao
+Google Sheets como banco de dados de agendamentos e horários disponíveis.
 
 ## Funcionalidades
 
@@ -38,13 +38,13 @@ banco de dados de agendamentos e horários disponíveis.
 
 ```
 src/
-  index.js                   # servidor Express e webhook da Z-API
+  index.js                   # servidor Express e webhook da Evolution API
   handlers/
     clienteHandler.js        # fluxo de agendamento do cliente
     manicureHandler.js       # comandos administrativos
     lembreteHandler.js       # job de lembretes 24h/2h, status pós-atendimento, avaliação e saudade
   services/
-    zapiService.js           # integração com a Z-API
+    evolutionService.js      # integração com a Evolution API
     sheetsService.js         # integração com o Google Sheets
   utils/
     dateUtils.js
@@ -63,9 +63,9 @@ npm start               # ou npm run dev, com --watch
 O servidor sobe em `http://localhost:3000` e expõe:
 
 - `GET /` — health check
-- `POST /webhook` — recebe as mensagens encaminhadas pela Z-API
+- `POST /webhook` — recebe as mensagens encaminhadas pela Evolution API
 
 ## Setup completo
 
 O passo a passo detalhado (planilha do Google Sheets, conta de serviço do Google, configuração da
-Z-API, variáveis de ambiente e deploy no Railway) está em [`docs/SETUP.md`](docs/SETUP.md).
+Evolution API, variáveis de ambiente e deploy no Railway) está em [`docs/SETUP.md`](docs/SETUP.md).
